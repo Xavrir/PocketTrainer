@@ -1,0 +1,26 @@
+{
+  "name": "pockettrainer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "On-device movement coaching with a course path that rewards safe mastery.",
+  "license": "MIT",
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "pnpm -r --if-present build",
+    "check": "pnpm typecheck && pnpm test && pnpm lint",
+    "lint": "pnpm -r --if-present lint",
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "mobile:android": "pnpm --filter @pockettrainer/mobile android",
+    "mobile:start": "pnpm --filter @pockettrainer/mobile start",
+    "api:dev": "pnpm --filter @pockettrainer/api start:dev",
+    "release:check": "pnpm check && pnpm build"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^20.1.0",
+    "@commitlint/config-conventional": "^20.0.0"
+  }
+}

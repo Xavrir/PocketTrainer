@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PocketTrainer Home review render</title>
+    <style>
+      @font-face { font-family: Bricolage; src: url('../../apps/mobile/src/assets/fonts/BricolageGrotesque.ttf'); }
+      @font-face { font-family: Jakarta; src: url('../../apps/mobile/src/assets/fonts/PlusJakartaSans.ttf'); }
+      :root { --canvas:#0d0b0b; --surface:#171414; --raised:#201b1b; --line:rgba(255,247,243,.1); --text:#fff7f3; --secondary:#b9aeaa; --muted:#807672; --coral:#ff5a6b; --mint:#66ddb1; }
+      * { box-sizing:border-box; }
+      html, body { margin:0; min-height:100%; background:#2b2727; color:var(--text); }
+      body { display:grid; place-items:start center; padding:20px; font-family:Jakarta, sans-serif; }
+      .phone { width:412px; min-height:915px; overflow:hidden; border:1px solid #4b4543; border-radius:36px; background:var(--canvas); box-shadow:0 22px 80px rgba(0,0,0,.45); }
+      .status { display:flex; justify-content:space-between; padding:13px 20px 4px; color:var(--secondary); font-size:11px; font-weight:700; }
+      main { padding:10px 20px 30px; }
+      .top { display:flex; justify-content:space-between; align-items:center; padding-bottom:32px; }
+      .brand { display:flex; align-items:center; gap:10px; font-family:Jakarta; font-weight:700; font-size:17px; letter-spacing:-.5px; }
+      .mark { width:25px; height:25px; border:2px solid var(--coral); border-radius:9px; transform:rotate(45deg); display:grid; place-items:center; }
+      .mark i { width:8px; height:8px; border-radius:4px; background:var(--coral); }
+      .notify { position:relative; width:44px; height:44px; border:1px solid var(--line); border-radius:14px; display:grid; place-items:center; font-size:24px; }
+      .dot { position:absolute; top:7px; right:8px; width:9px; height:9px; border-radius:50%; background:var(--coral); border:2px solid var(--canvas); }
+      .eyebrow,.hero-kicker,.hero-badge,.readiness-eyebrow { color:var(--coral); font-size:12px; line-height:16px; font-weight:700; letter-spacing:1.1px; }
+      h1 { margin:7px 0 0; font:700 36px/40px Bricolage; letter-spacing:-1.1px; }
+      .sub { color:var(--secondary); font-size:16px; line-height:24px; font-weight:500; max-width:300px; margin:10px 0 24px; }
+      .hero { height:286px; border-radius:16px; overflow:hidden; position:relative; background:linear-gradient(100deg,rgba(13,11,11,.75),rgba(13,11,11,.13)),url('../../apps/mobile/src/assets/images/home-hero.jpg') center/cover; }
+      .hero-inner { height:100%; display:flex; flex-direction:column; justify-content:space-between; padding:20px; }
+      .hero-badge { color:var(--text); font-size:12px; letter-spacing:.4px; display:flex; width:max-content; align-items:center; gap:7px; background:rgba(13,11,11,.72); border:1px solid rgba(255,247,243,.13); border-radius:999px; padding:7px 12px; }
+      .hero-badge i { width:7px; height:7px; background:var(--coral); border-radius:50%; }
+      .hero-title { font:700 28px/33px Bricolage; }
+      .hero-meta { margin-top:5px; color:rgba(255,247,243,.78); font-size:14px; line-height:20px; }
+      .cta { height:52px; background:var(--coral); color:var(--canvas); display:flex; align-items:center; justify-content:space-between; border-radius:12px; padding:0 16px; font-size:16px; font-weight:700; }
+      h2 { font:700 22px/28px Bricolage; margin:0; }
+      .section-head,.path-head { display:flex; align-items:baseline; justify-content:space-between; margin:32px 0 12px; }
+      .meta,.path-sub { color:var(--muted); font-size:14px; line-height:20px; }
+      .rhythm { display:flex; gap:12px; }
+      .rhythm-card { flex:1; min-height:163px; display:flex; flex-direction:column; align-items:center; justify-content:center; background:var(--surface); border:1px solid var(--line); border-radius:16px; }
+      .ring { width:98px; height:98px; border:7px solid rgba(255,247,243,.1); border-top-color:var(--coral); border-right-color:var(--coral); border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; transform:rotate(25deg); }
+      .ring span { transform:rotate(-25deg); font:700 17px/22px Jakarta; } .ring small { transform:rotate(-25deg); color:var(--secondary); font-size:12px; font-weight:700; margin-top:2px; }
+      .hint { color:var(--secondary); font-size:12px; line-height:16px; font-weight:700; margin-top:8px; }
+      .readiness { display:flex; align-items:center; gap:12px; padding:16px; margin-top:12px; border:1px solid var(--line); border-radius:16px; background:var(--raised); }
+      .readiness-icon { width:42px; height:42px; display:grid; place-items:center; border-radius:13px; background:rgba(102,221,177,.13); color:var(--mint); font-size:22px; }
+      .readiness-copy { flex:1; } .readiness-eyebrow { color:var(--mint); letter-spacing:.8px; } .readiness-title { margin-top:2px; font-size:15px; line-height:22px; font-weight:700; } .readiness-body { color:var(--secondary); font-size:14px; line-height:20px; margin-top:2px; } .chevron { font-size:30px; }
+      .path-head { align-items:flex-end; } .path-progress { color:var(--coral); font-size:17px; font-weight:700; }
+      .path { height:48px; position:relative; margin:0 8px; display:flex; align-items:center; justify-content:space-between; }
+      .line { position:absolute; left:5px; right:5px; top:23px; height:3px; background:linear-gradient(90deg,var(--coral) 0 48%,rgba(255,247,243,.12) 48%); }
+      .node { z-index:1; width:28px; height:28px; border-radius:50%; display:grid; place-items:center; background:var(--coral); color:var(--canvas); font-weight:700; } .node.current { background:var(--canvas); border:2px solid var(--coral); } .node.current i { width:10px; height:10px; border-radius:5px; background:var(--coral); } .node.locked { background:var(--surface); border:1px solid var(--line); color:var(--muted); }
+      .caption { color:var(--secondary); font-size:14px; line-height:21px; margin:8px 0 0; }
+      nav { height:82px; display:flex; justify-content:space-around; align-items:flex-start; padding:10px 8px; background:var(--surface); border-top:1px solid var(--line); }
+      nav a { width:60px; text-align:center; color:var(--muted); font-size:12px; line-height:16px; font-weight:700; } nav .glyph { display:grid; place-items:center; width:34px; height:28px; margin:0 auto 4px; font-size:21px; } nav .active { color:var(--text); } nav .active .glyph { color:var(--coral); background:rgba(255,90,107,.13); border-radius:12px; } nav .coach { margin-top:-26px; } nav .coach .glyph { width:58px; height:38px; margin-bottom:4px; background:var(--coral); border-radius:18px; color:var(--canvas); font-size:26px; box-shadow:0 6px 18px rgba(255,90,107,.2); }
+      @media (max-width:412px) { body { padding:0; } .phone { width:100%; border:0; border-radius:0; } }
+    </style>
+  </head>
+  <body>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>▴ ᯤ 100%</span></div>
+      <main>
+        <div class="top"><div class="brand"><span class="mark"><i></i></span><span>pockettrainer</span></div><div class="notify"><span class="dot"></span>◌</div></div>
+        <div class="eyebrow">SELAMAT PAGI, RAKA</div><h1>Make today<br/>count.</h1><p class="sub">Small, consistent sessions build the strongest you.</p>
+        <section class="hero"><div class="hero-inner"><div class="hero-badge"><i></i>TODAY’S LESSON</div><div><div class="hero-kicker">FOUNDATION / 02</div><div class="hero-title">Own your squat.</div><div class="hero-meta">8 min · Lower body · No equipment</div></div><div class="cta"><span>Continue lesson</span><b>↗</b></div></div></section>
+        <div class="section-head"><h2>Your rhythm</h2><span class="meta">Week 03</span></div>
+        <div class="rhythm"><div class="rhythm-card"><div class="ring"><span>7</span><small>STREAK</small></div><div class="hint">days in motion</div></div><div class="rhythm-card"><div class="ring"><span>240</span><small>XP TODAY</small></div><div class="hint">of 400 earned</div></div></div>
+        <div class="readiness"><div class="readiness-icon">↗</div><div class="readiness-copy"><div class="readiness-eyebrow">READINESS CHECK</div><div class="readiness-title">How does your body feel today?</div><div class="readiness-body">One quick check helps us keep your path safe.</div></div><div class="chevron">›</div></div>
+        <div class="path-head"><div><h2>Your path</h2><div class="path-sub">Foundation · 4 of 12 lessons</div></div><span class="path-progress">33%</span></div>
+        <div class="path"><div class="line"></div><div class="node">✓</div><div class="node">✓</div><div class="node current"><i></i></div><div class="node locked">·</div></div><p class="caption">Next safe goal: hold a strong bottom position for 3 seconds.</p>
+      </main>
+      <nav><a class="active"><span class="glyph">⌂</span>Home</a><a><span class="glyph">◈</span>Learn</a><a class="coach"><span class="glyph">+</span>Coach</a><a><span class="glyph">↗</span>Progress</a><a><span class="glyph">○</span>Profile</a></nav>
+    </div>
+  </body>
+</html>

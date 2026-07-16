@@ -1,0 +1,12 @@
+import React from 'react';
+import {Pressable, StyleSheet, Text, View} from 'react-native';
+import {colors, radius, spacing, type} from '../design/tokens';
+
+export type AppTab = 'home' | 'learn' | 'coach' | 'progress' | 'profile';
+type BottomNavProps = {activeTab: AppTab; onChange: (tab: AppTab) => void};
+const tabs: Array<{id: AppTab; label: string; glyph: string}> = [{id: 'home', label: 'Home', glyph: '⌂'}, {id: 'learn', label: 'Learn', glyph: '◈'}, {id: 'coach', label: 'Coach', glyph: '+'}, {id: 'progress', label: 'Progress', glyph: '↗'}, {id: 'profile', label: 'Profile', glyph: '○'}];
+
+export function BottomNav({activeTab, onChange}: BottomNavProps) {
+  return <View accessibilityRole="tablist" style={styles.shell}>{tabs.map(tab => {const isActive = activeTab === tab.id; const isCoach = tab.id === 'coach'; return <Pressable accessibilityLabel={`${tab.label} tab`} accessibilityRole="tab" accessibilityState={{selected: isActive}} key={tab.id} onPress={() => onChange(tab.id)} style={({pressed}) => [styles.tab, pressed && styles.pressed]}><View style={[isCoach ? styles.coachButton : styles.iconBox, isActive && !isCoach && styles.activeIconBox]}><Text style={[isCoach ? styles.coachGlyph : styles.glyph, isActive && !isCoach && styles.activeGlyph]}>{tab.glyph}</Text></View><Text style={[styles.label, isActive && styles.activeLabel]}>{tab.label}</Text></Pressable>;})}</View>;
+}
+const styles = StyleSheet.create({shell: {backgroundColor: colors.surface, borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth, flexDirection: 'row', justifyContent: 'space-around', paddingBottom: 10, paddingHorizontal: 8, paddingTop: 10}, tab: {alignItems: 'center', gap: 4, minHeight: 56, minWidth: 54, paddingHorizontal: spacing.xs}, pressed: {opacity: 0.72}, iconBox: {alignItems: 'center', borderRadius: radius.control, height: 28, justifyContent: 'center', width: 34}, activeIconBox: {backgroundColor: 'rgba(255,90,107,0.13)'}, coachButton: {alignItems: 'center', backgroundColor: colors.coral, borderRadius: 18, height: 38, justifyContent: 'center', marginTop: -16, shadowColor: colors.coral, shadowOffset: {height: 6, width: 0}, shadowOpacity: 0.22, shadowRadius: 12, width: 58}, glyph: {...type.card, color: colors.muted, fontSize: 21, lineHeight: 26}, activeGlyph: {color: colors.coral}, coachGlyph: {color: colors.canvas, fontFamily: 'Plus Jakarta Sans', fontSize: 26, fontWeight: '500', lineHeight: 29}, label: {...type.micro, color: colors.muted}, activeLabel: {color: colors.text}});

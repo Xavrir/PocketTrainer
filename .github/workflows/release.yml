@@ -1,0 +1,32 @@
+name: Checkpoint release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing checkpoint tag (for example v0.1.0-foundation)"
+        required: true
+        type: string
+      prerelease:
+        description: "Publish as a prerelease"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify tag exists
+        run: git rev-parse "${{ inputs.tag }}^{tag}"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          prerelease: ${{ inputs.prerelease }}
+          generate_release_notes: true
