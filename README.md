@@ -1,5 +1,9 @@
 # PocketTrainer
 
+<p align="center">
+  <img src="apps/mobile/src/assets/images/pockettrainer-logo-source.png" alt="PocketTrainer PT logo" width="360" />
+</p>
+
 [![CI](https://github.com/Xavrir/PocketTrainer/actions/workflows/ci.yml/badge.svg)](https://github.com/Xavrir/PocketTrainer/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Xavrir/PocketTrainer?display_name=tag)](https://github.com/Xavrir/PocketTrainer/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-f05a6a.svg)](LICENSE)
@@ -18,22 +22,30 @@ Assessment → personalized path → coached lesson → form score → mastery +
 
 ## MVP experience
 
-- Android-native camera coaching for body squat, beginner push-up, Warrior II, and Tree Pose.
+- Android-native posture scoring for body squat; unsupported movements remain clearly labeled guided practice without form scores.
 - Strength, yoga, and mobility courses built from versioned lessons and prerequisites.
 - XP, streak protection, achievements, and a Movement Passport.
-- Offline-first workouts with idempotent synchronization.
+- Authenticated workout submission with idempotent, server-authoritative XP and progression.
 - Progression that requires both account level and demonstrated movement mastery.
 - Explicit confidence and pain gates: uncertain tracking never becomes a low score or an unlock.
+- Supabase email/password identity with persisted sessions, foreground token refresh, and authenticated NestJS requests.
+
+## Product preview
+
+| Learn path | Native coaching | Progress passport |
+|---|---|---|
+| ![Course path](documentation/review/screenshots/v4/learn-412.png) | ![Live coaching](documentation/review/screenshots/v4/live-low-confidence-412.png) | ![Progress](documentation/review/screenshots/v4/progress-412.png) |
+
+The live state above demonstrates the no-score confidence gate. The native release was separately validated on a Samsung SM-A556E without Metro; its camera frame is intentionally not committed because workout imagery stays on-device.
 
 ## What makes it different
 
-The live movement engine stays native. Camera frames, pose landmarks, smoothing, state machines, scoring, and the skeleton overlay run on-device. React Native receives compact events only; the server receives derived workout summaries only.
+The live movement engine stays native. Camera frames, pose landmarks, movement state, feedback, and the skeleton overlay run on-device. React Native receives compact events only; the server receives derived workout summaries only.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  APP[React Native Android] <--> LOCAL[(Encrypted SQLite)]
   APP <--> POSE[Kotlin + CameraX + MediaPipe]
   APP <--> AUTH[Supabase Auth]
   APP --> EDGE[Cloudflare DNS / CDN]
@@ -45,7 +57,7 @@ flowchart LR
 
 | Layer | Choice | Responsibility |
 |---|---|---|
-| Mobile | React Native + TypeScript | Product UI, navigation, offline orchestration |
+| Mobile | React Native + TypeScript | Product UI, navigation, authenticated API orchestration |
 | Movement | Kotlin, CameraX, MediaPipe | Private live inference, feedback, overlay |
 | API | NestJS modular monolith | Auth boundary, catalog, plans, sync, progression |
 | Product data | Azure PostgreSQL | RLS-protected user and curriculum data |
@@ -85,7 +97,7 @@ pnpm mobile:start
 pnpm mobile:android
 ```
 
-Copy `apps/api/.env.example` to `apps/api/.env` for local API configuration. Never commit credentials, Supabase service keys, Azure connection strings, or signing keys.
+Copy `apps/api/.env.example` to `apps/api/.env` for local API configuration and `apps/mobile/.env.example` to `apps/mobile/.env` for the public Supabase URL, publishable key, and API origin. Release builds fail closed when auth is missing; only debug/test builds may enable the explicit bypass. Never commit credentials, Supabase service keys, Azure connection strings, or signing keys. See [Supabase Auth setup](documentation/SUPABASE_AUTH.md).
 
 ## Hackathon demo path
 
@@ -96,18 +108,17 @@ Copy `apps/api/.env.example` to `apps/api/.env` for local API configuration. Nev
 5. Complete a set with one clear correction at a time.
 6. Review form, completion, control, and consistency.
 7. Earn XP and unlock the next lesson only when mastery is safe.
-8. Repeat the workout offline and show exactly-once sync after reconnecting.
+8. Confirm the server response before presenting final XP, mastery, or unlocks.
 
 See [DEMO.md](documentation/DEMO.md) for the complete judging script.
 
 ## Checkpoints and releases
 
-Development is published as verifiable checkpoints rather than one final code dump:
+Development is published as exactly three verifiable hackathon checkpoints:
 
-- `v0.1.0-foundation` — product shell, reviewed Home experience, domain contracts, API/schema foundation.
-- `v0.2.0-coaching` — assessment and four-exercise on-device coaching loop.
-- `v0.3.0-progression` — offline sync, mastery, XP, streaks, and course unlocks.
-- `v0.4.0-beta` — device, privacy, accessibility, and closed-beta hardening.
+- `v0.1.0-foundation` — product shell, initial contracts, API skeleton, and repository standards.
+- `v0.1.1-infra` — Azure PostgreSQL/RLS, Supabase identity boundary, and Cloudflare/Azure deployment foundation.
+- `v0.2.0-demo` — reviewed end-to-end experience, native CameraX/MediaPipe loop, safety rules, progression API, and Android demo artifact.
 
 The complete evidence expected at each checkpoint is in [CHECKPOINTS.md](documentation/CHECKPOINTS.md). Release notes follow [Keep a Changelog](CHANGELOG.md) and Conventional Commits.
 
@@ -117,7 +128,7 @@ PocketTrainer provides general fitness guidance, not medical diagnosis or treatm
 
 ## Project status
 
-This repository is under active hackathon development. “Implemented” means code exists and passes its stated checks; hardware validation, professional exercise review, and cloud provisioning are tracked separately and are never represented as complete without evidence.
+This repository is a closed-beta hackathon prototype. The end-to-end product flow, native Android camera/inference path, API, schema, five-movement evaluator foundation, and progression rules are implemented. Hosted Supabase Cloud email/password Auth and the bearer-token API handoff were validated on a physical Samsung SM-A556E. The Android SQLCipher queue is wired and covered by unit/build checks, including same-key recovery after an ambiguous completion, but airplane-mode process-death and reconnect recovery still require an end-to-end device run. Azure/Cloudflare production provisioning, golden-video accuracy targets, broader device performance, privacy export/deletion UX review, Play signing, and qualified fitness approval also remain release gates. “Implemented” means code exists and passes its stated checks; a rendered screen, compiled native module, or schema is not represented as real-world validation.
 
 ## AI and external-resource disclosure
 

@@ -10,7 +10,7 @@ Supabase Auth issues the mobile session. NestJS validates its asymmetric JWT thr
 
 ## Offline completion
 
-The mobile app writes a session locally before showing completion, then appends a sync command with a client-generated idempotency key. The API stores processed keys and returns the original result for duplicate submissions. XP and unlocks are server-authoritative; the app may show a clearly labeled offline preview.
+The API side of offline completion is implemented: it stores processed idempotency keys and returns the original authoritative result for duplicate submissions. The mobile target is to write a session to encrypted SQLite before showing completion, then append a sync command with a client-generated idempotency key. That SQLite queue is a beta gate and is not claimed by the `v0.2.0-demo` checkpoint. XP and unlocks remain server-authoritative; the app may show only a clearly labeled offline preview.
 
 ## Content publishing
 

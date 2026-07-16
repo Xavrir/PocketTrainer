@@ -1,0 +1,105 @@
+import type { ExerciseDefinition } from "@pockettrainer/contracts";
+
+import {
+  DEFAULT_CALIBRATION,
+  DEFAULT_FEEDBACK_TIMING,
+  DEFAULT_SCORE_WEIGHTS,
+  deepFreeze,
+} from "./shared.js";
+
+export const JUMPING_JACK_DEFINITION = deepFreeze({
+  exerciseKey: "jumping_jack",
+  exerciseDefinitionVersion: 1,
+  schemaVersion: 1,
+  scoringVersion: 1,
+  metricSpecificationVersion: 1,
+  poseModelVersion: "mediapipe-pose-landmarker-lite@1",
+  minimumAppVersion: "0.1.0",
+  rollbackExerciseDefinitionVersion: null,
+  displayName: { "id-ID": "Jumping Jack", "en-US": "Jumping Jack" },
+  category: "strength",
+  mode: "repetition",
+  cameraView: "front",
+  requiredLandmarks: ["left_shoulder", "right_shoulder", "left_wrist", "right_wrist", "left_hip", "right_hip", "left_ankle", "right_ankle"],
+  calibration: { ...DEFAULT_CALIBRATION, minimumBodyCoverage: 0.78 },
+  states: [
+    {
+      id: "ready",
+      predicates: [
+        { metric: "stance_width_ratio", operator: "lte", value: 1.15, hysteresis: 0.08 },
+        { metric: "arm_horizontal_deviation_left", operator: "gte", value: 55, hysteresis: 5 },
+        { metric: "arm_horizontal_deviation_right", operator: "gte", value: 55, hysteresis: 5 },
+      ],
+      predicateMode: "all",
+      minimumDurationMs: 250,
+      allowedPreviousStates: ["complete"],
+      terminal: false,
+    },
+    {
+      id: "opening",
+      predicates: [{ metric: "stance_width_ratio", operator: "gt", value: 1.15, hysteresis: 0.08 }],
+      predicateMode: "all",
+      minimumDurationMs: 80,
+      allowedPreviousStates: ["ready"],
+      terminal: false,
+    },
+    {
+      id: "open",
+      predicates: [
+        { metric: "stance_width_ratio", operator: "gte", value: 1.35, hysteresis: 0.08 },
+        { metric: "arm_horizontal_deviation_left", operator: "lte", value: 28, hysteresis: 5 },
+        { metric: "arm_horizontal_deviation_right", operator: "lte", value: 28, hysteresis: 5 },
+      ],
+      predicateMode: "all",
+      minimumDurationMs: 100,
+      allowedPreviousStates: ["opening"],
+      terminal: false,
+    },
+    {
+      id: "closing",
+      predicates: [{ metric: "stance_width_ratio", operator: "lt", value: 1.35, hysteresis: 0.08 }],
+      predicateMode: "all",
+      minimumDurationMs: 80,
+      allowedPreviousStates: ["open"],
+      terminal: false,
+    },
+    {
+      id: "complete",
+      predicates: [
+        { metric: "stance_width_ratio", operator: "lte", value: 1.15, hysteresis: 0.08 },
+        { metric: "arm_horizontal_deviation_left", operator: "gte", value: 55, hysteresis: 5 },
+        { metric: "arm_horizontal_deviation_right", operator: "gte", value: 55, hysteresis: 5 },
+      ],
+      predicateMode: "all",
+      minimumDurationMs: 180,
+      allowedPreviousStates: ["closing"],
+      terminal: true,
+    },
+  ],
+  stateMachine: {
+    initialStateId: "ready",
+    resetStateId: "ready",
+    transitionPriority: ["complete", "closing", "open", "opening", "ready"],
+    invalidTransitionBehavior: "retain_current_state",
+  },
+  maximumRepDurationMs: 5_000,
+  trackingLossResetMs: 1_200,
+  rules: [
+    { id: "jumping_jack_arm_range", phases: ["opening", "open", "closing"], metric: "arm_horizontal_deviation_left", idealRange: { minimum: 0, maximum: 28 }, hardRange: { minimum: 0, maximum: 50 }, weight: 0.35, phaseWeight: 1.2, critical: true, feedbackKey: "jumpingJack.arms" },
+    { id: "jumping_jack_stance", phases: ["opening", "open", "closing"], metric: "stance_width_ratio", idealRange: { minimum: 1.35, maximum: 2.2 }, hardRange: { minimum: 1.15, maximum: 2.6 }, weight: 0.35, phaseWeight: 1.2, critical: true, feedbackKey: "jumpingJack.stance" },
+    { id: "jumping_jack_control", phases: ["opening", "closing"], metric: "center_displacement", idealRange: { minimum: 0, maximum: 0.18 }, hardRange: { minimum: 0, maximum: 0.5 }, weight: 0.3, phaseWeight: 1, critical: false, feedbackKey: "jumpingJack.control" },
+  ],
+  scoreWeights: DEFAULT_SCORE_WEIGHTS,
+  feedback: [
+    { key: "jumpingJack.arms", ruleId: "jumping_jack_arm_range", severity: "important", message: { "id-ID": "Buka tangan lebih lebar dengan kontrol", "en-US": "Open your arms wider with control" }, ...DEFAULT_FEEDBACK_TIMING },
+    { key: "jumpingJack.stance", ruleId: "jumping_jack_stance", severity: "safety", message: { "id-ID": "Mendarat dengan kaki selebar bahu", "en-US": "Land with your feet under control" }, ...DEFAULT_FEEDBACK_TIMING },
+    { key: "jumpingJack.control", ruleId: "jumping_jack_control", severity: "coaching", message: { "id-ID": "Perlambat dan jaga pendaratan", "en-US": "Slow down and control the landing" }, ...DEFAULT_FEEDBACK_TIMING },
+  ],
+  progression: {
+    easierVariationKey: "step_jack",
+    harderVariationKey: "star_jump",
+    requiredEquipment: ["none"],
+    requiredCapabilities: { lower_body_control: 25, balance: 25 },
+    contraindicationTags: ["knee_flexion"],
+  },
+} satisfies ExerciseDefinition);

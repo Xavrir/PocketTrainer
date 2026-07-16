@@ -37,8 +37,13 @@ export type UserProfileDto = Readonly<{
 }>;
 
 export type UpdateProfileRequest = Readonly<
-  Omit<UserProfileDto, "userId" | "updatedAt">
+  Omit<UserProfileDto, "userId" | "updatedAt" | "onboardingCompleted">
 >;
+
+export type IdempotentMutation<RequestBody> = Readonly<{
+  idempotencyKey: string;
+  body: RequestBody;
+}>;
 
 export type ConsentType = "privacy" | "camera_processing" | "fitness_guidance";
 
@@ -97,7 +102,6 @@ export type CreateAssessmentResponse = Readonly<{
 }>;
 
 export type CompleteAssessmentRequest = Readonly<{
-  idempotencyKey: string;
   uploadRevision: number;
   completedAt: IsoDateTime;
   results: readonly ExerciseResultSummary[];
@@ -114,7 +118,6 @@ export type CurrentPlanResponse = Readonly<{
 }>;
 
 export type CreateWorkoutSessionRequest = Readonly<{
-  idempotencyKey: string;
   clientSessionId: Uuid;
   lessonId: Uuid | null;
   planId: Uuid | null;
@@ -129,7 +132,6 @@ export type CreateWorkoutSessionResponse = Readonly<{
 }>;
 
 export type PutWorkoutResultsRequest = Readonly<{
-  idempotencyKey: string;
   uploadRevision: number;
   results: readonly ExerciseResultSummary[];
 }>;
@@ -141,12 +143,18 @@ export type PutWorkoutResultsResponse = Readonly<{
 }>;
 
 export type CompleteWorkoutSessionRequest = Readonly<{
-  idempotencyKey: string;
   uploadRevision: number;
   completedAt: IsoDateTime;
-  perceivedDifficulty: number | null;
-  painReported: boolean;
+  stopReason: "completed" | "pain_reported" | "tracking_unavailable" | "user_stopped";
 }>;
+
+export type UpdateProfileMutation = IdempotentMutation<UpdateProfileRequest>;
+export type UpdateConsentMutation = IdempotentMutation<UpdateConsentRequest>;
+export type CreateAssessmentMutation = IdempotentMutation<CreateAssessmentRequest>;
+export type CompleteAssessmentMutation = IdempotentMutation<CompleteAssessmentRequest>;
+export type CreateWorkoutSessionMutation = IdempotentMutation<CreateWorkoutSessionRequest>;
+export type PutWorkoutResultsMutation = IdempotentMutation<PutWorkoutResultsRequest>;
+export type CompleteWorkoutSessionMutation = IdempotentMutation<CompleteWorkoutSessionRequest>;
 
 export type CompleteWorkoutSessionResponse = Readonly<{
   workoutSessionId: Uuid;
@@ -201,13 +209,30 @@ export type SyncBatchRequest = Readonly<{
   events: readonly SyncEventDto[];
 }>;
 
-export type SyncEventResult = Readonly<{
+type AppliedSyncEventResult<EventType extends SyncEventType, Result> = Readonly<{
   clientEventId: Uuid;
-  status: "applied" | "duplicate" | "rejected";
-  serverEventId?: Uuid;
-  errorCode?: string;
-  result?: unknown;
+  type: EventType;
+  status: "applied" | "duplicate";
+  serverEventId: Uuid;
+  result: Result;
 }>;
+
+type RejectedSyncEventResult = Readonly<{
+  clientEventId: Uuid;
+  type: SyncEventType;
+  status: "rejected";
+  errorCode: string;
+}>;
+
+export type SyncEventResult =
+  | AppliedSyncEventResult<"assessment.started", CreateAssessmentResponse>
+  | AppliedSyncEventResult<"assessment.completed", CompleteAssessmentResponse>
+  | AppliedSyncEventResult<"workout.started", CreateWorkoutSessionResponse>
+  | AppliedSyncEventResult<"workout.results", PutWorkoutResultsResponse>
+  | AppliedSyncEventResult<"workout.completed", CompleteWorkoutSessionResponse>
+  | AppliedSyncEventResult<"profile.updated", UserProfileDto>
+  | AppliedSyncEventResult<"consent.updated", ConsentDto>
+  | RejectedSyncEventResult;
 
 export type SyncBatchResponse = Readonly<{
   serverTime: IsoDateTime;

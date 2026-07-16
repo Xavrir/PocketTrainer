@@ -2,8 +2,8 @@ import { z } from 'zod';
 
 export const profileSchema = z.object({
   displayName: z.string().trim().min(1).max(80),
-  locale: z.enum(['id', 'en']).default('id'),
-  timezone: z.string().min(1).max(100).default('Asia/Jakarta'),
+  locale: z.enum(['id', 'en']),
+  timezone: z.string().min(1).max(100),
   primaryGoal: z.enum(['build_strength', 'improve_mobility', 'build_consistency', 'reduce_stress']),
   experienceLevel: z.enum(['foundation', 'beginner', 'intermediate']),
   equipment: z.array(z.string().min(1).max(80)).max(30),
@@ -52,6 +52,7 @@ export const exerciseResultSchema = z.object({
   durationMs: z.number().int().min(0).max(7_200_000),
 }).strict().superRefine((value, context) => {
   if (value.validReps > value.totalReps) context.addIssue({ code: z.ZodIssueCode.custom, path: ['validReps'], message: 'validReps cannot exceed totalReps.' });
+  if (value.trackingEligible && value.formScore === undefined) context.addIssue({ code: z.ZodIssueCode.custom, path: ['formScore'], message: 'A form score is required when tracking is eligible.' });
   if (!value.trackingEligible && value.formScore !== undefined) context.addIssue({ code: z.ZodIssueCode.custom, path: ['formScore'], message: 'A form score cannot be supplied when tracking is ineligible.' });
 });
 

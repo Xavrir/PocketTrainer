@@ -67,6 +67,7 @@ export type Course = Readonly<{
   trackKey: TrackKey;
   title: LocalizedText;
   description: LocalizedText;
+  order: number;
   minimumAccountLevel: number;
   publishingState: PublishingState;
   units: readonly Unit[];
@@ -101,6 +102,7 @@ export type LessonLockReason =
 
 export type LessonUnlockDecision = Readonly<{
   state: LessonAccessState;
+  launchAllowed: boolean;
   reasons: readonly Readonly<{
     code: LessonLockReason;
     reference?: string;

@@ -5,6 +5,7 @@ coverage/
 .turbo/
 .DS_Store
 *.log
+*.tsbuildinfo
 
 .env
 .env.*
@@ -21,7 +22,16 @@ apps/mobile/android/build/
 apps/mobile/ios/Pods/
 apps/mobile/ios/build/
 apps/mobile/.metro-health-check*
+apps/mobile/dist-web/
+supabase/.temp/
+
+# Local visual-review iterations; keep only the final evidence set.
+documentation/review/screenshots/*
+!documentation/review/screenshots/v4/
+!documentation/review/screenshots/v4/**
+!documentation/review/screenshots/device-home.png
 
 .idea/
 .vscode/
+.playwright-cli/
 *.swp

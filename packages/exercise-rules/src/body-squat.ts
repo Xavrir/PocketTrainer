@@ -12,6 +12,7 @@ export const BODY_SQUAT_DEFINITION = deepFreeze({
   exerciseDefinitionVersion: 1,
   schemaVersion: 1,
   scoringVersion: 1,
+  metricSpecificationVersion: 1,
   poseModelVersion: "mediapipe-pose-landmarker-lite@1",
   minimumAppVersion: "0.1.0",
   rollbackExerciseDefinitionVersion: null,
@@ -75,6 +76,12 @@ export const BODY_SQUAT_DEFINITION = deepFreeze({
       terminal: true,
     },
   ],
+  stateMachine: {
+    initialStateId: "ready",
+    resetStateId: "ready",
+    transitionPriority: ["complete", "ascending", "bottom", "descending", "ready"],
+    invalidTransitionBehavior: "retain_current_state",
+  },
   maximumRepDurationMs: 8_000,
   trackingLossResetMs: 1_200,
   rules: [

@@ -11,25 +11,36 @@ import type {
 export type LessonUnlockContext = Readonly<{
   accountLevel: number;
   completedLessonIds: ReadonlySet<Uuid>;
-  masteryScores: Readonly<Record<string, number | undefined>>;
+  mastery: Readonly<
+    Record<string, Readonly<{ score: number; mastered: boolean }> | undefined>
+  >;
   availableEquipment: ReadonlySet<Equipment>;
   capabilityScores: Readonly<Partial<Record<AssessmentCapability, number>>>;
   activeRestrictions: ReadonlySet<RestrictionTag>;
+  courseMinimumAccountLevel: number;
+  coursePublishingState: "draft" | "review" | "published" | "retired";
 }>;
 
 export function evaluateLessonUnlock(
   lesson: Lesson,
   context: LessonUnlockContext,
 ): LessonUnlockDecision {
+  assertNonNegativeInteger(context.accountLevel, "accountLevel");
+  assertNonNegativeInteger(context.courseMinimumAccountLevel, "courseMinimumAccountLevel");
+  assertNonNegativeInteger(lesson.requirements.minimumAccountLevel, "minimumAccountLevel");
   const reasons: LessonUnlockDecision["reasons"][number][] = [];
-  if (lesson.publishingState !== "published") {
+  if (lesson.publishingState !== "published" || context.coursePublishingState !== "published") {
     reasons.push({ code: "CONTENT_NOT_PUBLISHED" });
   }
-  if (context.accountLevel < lesson.requirements.minimumAccountLevel) {
+  const requiredAccountLevel = Math.max(
+    lesson.requirements.minimumAccountLevel,
+    context.courseMinimumAccountLevel,
+  );
+  if (context.accountLevel < requiredAccountLevel) {
     reasons.push({
       code: "ACCOUNT_LEVEL_REQUIRED",
       currentValue: context.accountLevel,
-      requiredValue: lesson.requirements.minimumAccountLevel,
+      requiredValue: requiredAccountLevel,
     });
   }
   for (const prerequisiteId of lesson.requirements.prerequisiteLessonIds) {
@@ -38,8 +49,11 @@ export function evaluateLessonUnlock(
     }
   }
   for (const requirement of lesson.requirements.mastery) {
-    const score = context.masteryScores[requirement.exerciseKey] ?? 0;
-    if (score < requirement.minimumMasteryScore) {
+    const mastery = context.mastery[requirement.exerciseKey];
+    const score = mastery?.score ?? 0;
+    assertPercent(score, `mastery score for ${requirement.exerciseKey}`);
+    assertPercent(requirement.minimumMasteryScore, `mastery requirement for ${requirement.exerciseKey}`);
+    if (mastery?.mastered !== true || score < requirement.minimumMasteryScore) {
       reasons.push({
         code: "MASTERY_REQUIRED",
         reference: requirement.exerciseKey,
@@ -55,6 +69,8 @@ export function evaluateLessonUnlock(
   }
   for (const requirement of lesson.requirements.capabilities) {
     const score = context.capabilityScores[requirement.capability] ?? 0;
+    assertPercent(score, `capability score for ${requirement.capability}`);
+    assertPercent(requirement.minimumScore, `capability requirement for ${requirement.capability}`);
     if (score < requirement.minimumScore) {
       reasons.push({
         code: "ASSESSMENT_CAPABILITY_REQUIRED",
@@ -69,19 +85,24 @@ export function evaluateLessonUnlock(
       reasons.push({ code: "ACTIVE_RESTRICTION", reference: restriction });
     }
   }
-  if (
-    context.completedLessonIds.has(lesson.id) &&
-    !reasons.some(
-      (reason) =>
-        reason.code === "ACTIVE_RESTRICTION" || reason.code === "CONTENT_NOT_PUBLISHED",
-    )
-  ) {
-    return Object.freeze({ state: "completed", reasons: Object.freeze([]) });
-  }
+  const completed = context.completedLessonIds.has(lesson.id);
   return Object.freeze({
-    state: accessStateFor(reasons.map((reason) => reason.code)),
+    state: completed ? "completed" : accessStateFor(reasons.map((reason) => reason.code)),
+    launchAllowed: reasons.length === 0,
     reasons: Object.freeze(reasons),
   });
+}
+
+function assertPercent(value: number, name: string): void {
+  if (!Number.isFinite(value) || value < 0 || value > 100) {
+    throw new RangeError(`${name} must be between 0 and 100`);
+  }
+}
+
+function assertNonNegativeInteger(value: number, name: string): void {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new RangeError(`${name} must be a non-negative integer`);
+  }
 }
 
 function accessStateFor(reasons: readonly LessonLockReason[]): LessonUnlockDecision["state"] {

@@ -54,7 +54,46 @@ export type PoseMetric =
   | "single_leg_stability"
   | "raised_knee_lateral_rotation"
   | "center_displacement"
+  | "valid_hold_duration_ms"
   | "pose_confidence";
+
+export type PoseMetricSpecification = Readonly<{
+  metric: PoseMetric;
+  unit: "degrees" | "degrees_per_second" | "normalized_ratio" | "normalized_per_second" | "confidence" | "milliseconds";
+  sideSelection:
+    | "anatomical_left"
+    | "anatomical_right"
+    | "most_visible_side"
+    | "bilateral"
+    | "front_leg"
+    | "not_applicable";
+  selectionRule:
+    | "highest_minimum_landmark_visibility_left_tie"
+    | "smallest_knee_angle_left_tie"
+    | "both_anatomical_sides"
+    | "fixed_anatomical_side"
+    | "none";
+  normalization: "none" | "torso_length" | "shoulder_width";
+  signedDirection: "unsigned" | "positive_extension" | "positive_up" | "positive_left_side_up";
+  formulaId: string;
+}>;
+
+export type NormalizedPoseLandmark = Readonly<{
+  x: number;
+  y: number;
+  z: number;
+  visibility: number;
+}>;
+
+export type PoseMetricGoldenFixture = Readonly<{
+  id: string;
+  metricSpecificationVersion: 1;
+  metric: PoseMetric;
+  inputStage: "mirror_corrected_normalized_world";
+  landmarks: Readonly<Partial<Record<LandmarkName, NormalizedPoseLandmark>>>;
+  expectedValue: number;
+  tolerance: number;
+}>;
 
 export type ComparisonOperator = "gt" | "gte" | "lt" | "lte" | "between";
 
@@ -82,6 +121,20 @@ export type ExerciseStateDefinition = Readonly<{
   minimumDurationMs: number;
   allowedPreviousStates: readonly string[];
   terminal: boolean;
+}>;
+
+export type ExerciseStateMachineDefinition = Readonly<{
+  initialStateId: string;
+  resetStateId: string;
+  transitionPriority: readonly string[];
+  invalidTransitionBehavior: "retain_current_state";
+  holdAccumulator?: Readonly<{
+    activeStateId: string;
+    pauseWhenActivePredicatesFail: true;
+    completionMetric: "valid_hold_duration_ms";
+    resetAfterTrackingLossMs: number;
+    resetAfterAlignmentLossMs: number;
+  }>;
 }>;
 
 export type NumericRange = Readonly<{
@@ -131,6 +184,7 @@ export type ExerciseDefinition = Readonly<{
   exerciseDefinitionVersion: number;
   schemaVersion: number;
   scoringVersion: number;
+  metricSpecificationVersion: 1;
   poseModelVersion: string;
   minimumAppVersion: string;
   rollbackExerciseDefinitionVersion: number | null;
@@ -141,6 +195,7 @@ export type ExerciseDefinition = Readonly<{
   requiredLandmarks: readonly LandmarkName[];
   calibration: CalibrationRequirements;
   states: readonly ExerciseStateDefinition[];
+  stateMachine: ExerciseStateMachineDefinition;
   maximumRepDurationMs?: number;
   targetHoldDurationMs?: number;
   trackingLossResetMs: number;
@@ -181,6 +236,8 @@ export type RepResult = Readonly<{
   control: number;
   confidence: number;
   durationMs: number;
+  completedStateIds: readonly string[];
+  failedCriticalRuleIds: readonly string[];
   measurements: readonly RuleMeasurement[];
 }>;
 
@@ -190,12 +247,13 @@ export type SessionScoringInput = Readonly<{
     score: number;
     weight: number;
     phaseWeight: number;
+    critical: boolean;
+    passed: boolean;
   }>[];
   completion: number;
   control: number;
   repetitionFormScores: readonly number[];
   confidenceEligible: boolean;
-  criticalRulesPassed: boolean;
 }>;
 
 export type SessionScore = Readonly<{
@@ -204,26 +262,52 @@ export type SessionScore = Readonly<{
   control: number;
   consistency: number;
   total: number;
-  progressionEligible: boolean;
+  criticalRulesPassed: boolean;
 }>;
 
-export type ExerciseResultSummary = Readonly<{
+export type ExerciseSafetyReport = Readonly<{
+  painReported: boolean;
+  perceivedDifficulty: number | null;
+  stopReason: "completed" | "pain_reported" | "tracking_unavailable" | "user_stopped";
+}>;
+
+type ExerciseResultBase = Readonly<{
   exerciseKey: string;
   exerciseDefinitionVersion: number;
   scoringVersion: number;
   poseModelVersion: string;
-  attemptedRepetitions: number;
-  validRepetitions: number;
-  validHoldDurationMs: number;
-  targetHoldDurationMs: number;
   formScore: number | null;
   completionPercent: number;
   controlScore: number | null;
   consistencyScore: number | null;
   averageTrackingConfidence: number;
-  painReported: boolean;
-  perceivedDifficulty: number | null;
+  confidenceEligible: boolean;
+  criticalRulesPassed: boolean;
+  failedCriticalRuleIds: readonly string[];
+  ruleMeasurements: readonly RuleMeasurement[];
+  safety: ExerciseSafetyReport;
 }>;
+
+export type RepetitionExerciseResultSummary = ExerciseResultBase &
+  Readonly<{
+    resultMode: "repetition";
+    targetRepetitions: number;
+    attemptedRepetitions: number;
+    validRepetitions: number;
+    repResults: readonly RepResult[];
+  }>;
+
+export type HoldExerciseResultSummary = ExerciseResultBase &
+  Readonly<{
+    resultMode: "hold";
+    validHoldDurationMs: number;
+    targetHoldDurationMs: number;
+    holdPauseCount: number;
+  }>;
+
+export type ExerciseResultSummary =
+  | RepetitionExerciseResultSummary
+  | HoldExerciseResultSummary;
 
 export type PoseSessionSummary = Readonly<{
   sessionId: Uuid;

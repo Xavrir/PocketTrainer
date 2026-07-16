@@ -10,10 +10,10 @@ import { SupabaseTokenVerifier } from './supabase-token.verifier';
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(
-    private readonly reflector: Reflector,
+    @Inject(Reflector) private readonly reflector: Reflector,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
-    private readonly verifier: SupabaseTokenVerifier,
-    private readonly repository: PocketTrainerRepository,
+    @Inject(SupabaseTokenVerifier) private readonly verifier: SupabaseTokenVerifier,
+    @Inject(PocketTrainerRepository) private readonly repository: PocketTrainerRepository,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -27,9 +27,8 @@ export class AuthGuard implements CanActivate {
       try {
         const payload = await this.verifier.verify(authorization.slice(7));
         subject = payload.sub;
-        roles = Array.isArray(payload.app_metadata && (payload.app_metadata as Record<string, unknown>).roles)
-          ? ((payload.app_metadata as Record<string, unknown>).roles as string[])
-          : [];
+        const candidateRoles = payload.app_metadata && (payload.app_metadata as Record<string, unknown>).roles;
+        roles = Array.isArray(candidateRoles) ? candidateRoles.filter((role): role is string => typeof role === 'string') : [];
       } catch {
         throw new ApiError('AUTH_TOKEN_INVALID', 'The access token is invalid or expired.', HttpStatus.UNAUTHORIZED, true);
       }

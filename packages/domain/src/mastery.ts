@@ -1,6 +1,13 @@
-import type { MasteryDecision, MasteryEvidence, PlanChange } from "@pockettrainer/contracts";
+import type {
+  ExerciseResultSummary,
+  IsoDateTime,
+  MasteryDecision,
+  MasteryEvidence,
+  PlanChange,
+  Uuid,
+} from "@pockettrainer/contracts";
 
-import { roundScore } from "./numbers.js";
+import { assertPercent, roundScore } from "./numbers.js";
 
 export type MasteryThresholds = Readonly<{
   progressionFormScore: number;
@@ -26,6 +33,8 @@ export function evaluateMastery(
   evidence: readonly MasteryEvidence[],
   thresholds: MasteryThresholds = DEFAULT_MASTERY_THRESHOLDS,
 ): MasteryDecision {
+  assertMasteryThresholds(thresholds);
+  evidence.forEach(assertMasteryEvidence);
   if (evidence.length === 0) {
     return decision("maintain", 0, [], ["MASTERY_CRITERIA_PENDING"]);
   }
@@ -61,6 +70,77 @@ export function evaluateMastery(
     );
   }
   return decision("maintain", masteryScore(recent), [], ["MASTERY_CRITERIA_PENDING"]);
+}
+
+function assertMasteryEvidence(evidence: MasteryEvidence): void {
+  timestampOf(evidence);
+  if (evidence.formScore !== null) {
+    assertPercent(evidence.formScore, "mastery evidence formScore");
+  }
+  assertPercent(evidence.completionPercent, "mastery evidence completionPercent");
+  if (
+    evidence.perceivedDifficulty !== null &&
+    (!Number.isFinite(evidence.perceivedDifficulty) ||
+      evidence.perceivedDifficulty < 0 ||
+      evidence.perceivedDifficulty > 10)
+  ) {
+    throw new RangeError("mastery evidence perceivedDifficulty must be between 0 and 10");
+  }
+  if (
+    !Number.isFinite(evidence.validRepetitionRate) ||
+    evidence.validRepetitionRate < 0 ||
+    evidence.validRepetitionRate > 1
+  ) {
+    throw new RangeError("mastery evidence validRepetitionRate must be between 0 and 1");
+  }
+}
+
+function assertMasteryThresholds(thresholds: MasteryThresholds): void {
+  assertPercent(thresholds.progressionFormScore, "progressionFormScore");
+  assertPercent(thresholds.progressionCompletionPercent, "progressionCompletionPercent");
+  assertPercent(thresholds.regressionFormScore, "regressionFormScore");
+  if (!Number.isInteger(thresholds.requiredRecentSessions) || thresholds.requiredRecentSessions < 1) {
+    throw new RangeError("requiredRecentSessions must be a positive integer");
+  }
+  if (
+    !Number.isFinite(thresholds.maximumProgressionDifficulty) ||
+    thresholds.maximumProgressionDifficulty < 0 ||
+    thresholds.maximumProgressionDifficulty > 10 ||
+    !Number.isFinite(thresholds.significantDifficulty) ||
+    thresholds.significantDifficulty < 0 ||
+    thresholds.significantDifficulty > 10
+  ) {
+    throw new RangeError("difficulty thresholds must be between 0 and 10");
+  }
+  if (
+    !Number.isFinite(thresholds.regressionValidRepetitionRate) ||
+    thresholds.regressionValidRepetitionRate < 0 ||
+    thresholds.regressionValidRepetitionRate > 1
+  ) {
+    throw new RangeError("regressionValidRepetitionRate must be between 0 and 1");
+  }
+}
+
+export function createMasteryEvidence(
+  workoutSessionId: Uuid,
+  completedAt: IsoDateTime,
+  result: ExerciseResultSummary,
+): MasteryEvidence {
+  const validRepetitionRate =
+    result.resultMode === "repetition" && result.attemptedRepetitions > 0
+      ? result.validRepetitions / result.attemptedRepetitions
+      : result.completionPercent / 100;
+  return Object.freeze({
+    workoutSessionId,
+    completedAt,
+    formScore: result.formScore,
+    completionPercent: result.completionPercent,
+    perceivedDifficulty: result.safety.perceivedDifficulty,
+    validRepetitionRate,
+    confidenceEligible: result.confidenceEligible,
+    criticalRulesPassed: result.criticalRulesPassed,
+    painReported: result.safety.painReported,
+  });
 }
 
 function timestampOf(evidence: MasteryEvidence): number {
@@ -104,7 +184,10 @@ function findRegressionReason(
 function masteryScore(evidence: readonly MasteryEvidence[]): number {
   const scoreable = evidence.filter(
     (session): session is MasteryEvidence & { formScore: number } =>
-      session.confidenceEligible && !session.painReported && session.formScore !== null,
+      session.confidenceEligible &&
+      session.criticalRulesPassed &&
+      !session.painReported &&
+      session.formScore !== null,
   );
   if (scoreable.length === 0) {
     return 0;
@@ -126,6 +209,7 @@ function decision(
   return Object.freeze({
     action,
     masteryScore: score,
+    progressionCriteriaMet: action === "progress",
     qualifyingSessionIds: Object.freeze([...qualifyingSessionIds]),
     reasonCodes: Object.freeze([...reasonCodes]),
   });

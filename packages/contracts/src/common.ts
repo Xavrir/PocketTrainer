@@ -45,11 +45,11 @@ export type AssessmentCapability =
 export type RestrictionTag =
   | "knee_flexion"
   | "wrist_loading"
+  | "shoulder_loading"
   | "shoulder_overhead"
   | "single_leg_balance"
   | "spinal_flexion"
-  | "floor_transition"
-  | (string & {});
+  | "floor_transition";
 
 export type ApiErrorCode =
   | "INVALID_REQUEST"

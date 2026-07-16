@@ -1,4 +1,5 @@
 import type {
+  FormRule,
   NumericRange,
   ScoreWeights,
   SessionScore,
@@ -13,6 +14,27 @@ export const DEFAULT_SESSION_SCORE_WEIGHTS = Object.freeze({
   control: 0.15,
   consistency: 0.1,
 }) satisfies ScoreWeights;
+
+export type FormRuleEvaluation = Readonly<{
+  ruleId: string;
+  score: number;
+  weight: number;
+  phaseWeight: number;
+  critical: boolean;
+  passed: boolean;
+}>;
+
+export function evaluateFormRule(rule: FormRule, actualValue: number): FormRuleEvaluation {
+  const score = calculateRangeRuleScore(actualValue, rule.idealRange, rule.hardRange);
+  return Object.freeze({
+    ruleId: rule.id,
+    score,
+    weight: rule.weight,
+    phaseWeight: rule.phaseWeight,
+    critical: rule.critical,
+    passed: score > 0,
+  });
+}
 
 export function calculateRangeRuleScore(
   actualValue: number,
@@ -86,6 +108,7 @@ export function calculateSessionScore(
 
   const formAccuracy = calculateFormAccuracy(input.ruleScores);
   const consistency = calculateConsistency(input.repetitionFormScores);
+  const criticalRulesPassed = input.ruleScores.every((rule) => !rule.critical || rule.passed);
   const total =
     formAccuracy * weights.formAccuracy +
     input.completion * weights.completion +
@@ -98,7 +121,7 @@ export function calculateSessionScore(
     control: roundScore(input.control),
     consistency,
     total: roundScore(total),
-    progressionEligible: input.criticalRulesPassed,
+    criticalRulesPassed,
   });
 }
 

@@ -7,7 +7,11 @@ import type {
 
 export function evaluateTrackingGate(input: TrackingGateInput): TrackingGateDecision {
   const reasons: TrackingGateReason[] = [];
-  if (input.poseConfidence < input.minimumPoseConfidence) {
+  if (
+    !isUnitInterval(input.poseConfidence) ||
+    !isUnitInterval(input.minimumPoseConfidence) ||
+    input.poseConfidence < input.minimumPoseConfidence
+  ) {
     reasons.push("LOW_POSE_CONFIDENCE");
   }
   if (!input.requiredLandmarksPresent) {
@@ -31,6 +35,10 @@ export function evaluateTrackingGate(input: TrackingGateInput): TrackingGateDeci
     userMessageKey:
       reasons.length === 0 ? "tracking.ready" : "tracking.paused.fullBodyNotVisible",
   });
+}
+
+function isUnitInterval(value: number): boolean {
+  return Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
 export function evaluatePainSafety(painReported: boolean): PainSafetyDecision {

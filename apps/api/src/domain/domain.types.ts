@@ -158,11 +158,11 @@ export type ExerciseResultInput = {
   setNumber: number;
   totalReps: number;
   validReps: number;
-  formScore?: number;
+  formScore?: number | undefined;
   completionScore: number;
   controlScore: number;
   consistencyScore: number;
-  mainFeedbackCode?: string;
+  mainFeedbackCode?: string | undefined;
   trackingEligible: boolean;
   durationMs: number;
 };
@@ -207,4 +207,32 @@ export type Identity = {
   id: string;
   authSubject: string;
   roles: string[];
+};
+
+export type PrivacyExport = {
+  formatVersion: 1;
+  generatedAt: string;
+  user: {
+    id: string;
+    authSubject: string;
+  };
+  profile: Profile | null;
+  consents: Consent[];
+  assessments: Assessment[];
+  currentPlan: WorkoutPlan | null;
+  progress: Progress;
+  workouts: WorkoutSession[];
+  manifest: {
+    includes: string[];
+    excludes: string[];
+  };
+};
+
+export type PrivacyDeletion = {
+  action: 'account_deleted';
+  completedAt: string;
+  manifest: {
+    deleted: string[];
+    retained: string[];
+  };
 };

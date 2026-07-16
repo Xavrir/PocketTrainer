@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, Param, Post, Put, Res } from '@nestjs/common';
+import { Body, Controller, Headers, Inject, Param, Post, Put, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { CurrentUser } from '../common/current-user.decorator';
 import { sendIdempotent } from '../common/idempotency';
@@ -9,7 +9,7 @@ import { PocketTrainerRepository } from '../repositories/pocket-trainer.reposito
 
 @Controller('v1/workout-sessions')
 export class WorkoutController {
-  constructor(private readonly repository: PocketTrainerRepository) {}
+  constructor(@Inject(PocketTrainerRepository) private readonly repository: PocketTrainerRepository) {}
   @Post() async create(@CurrentUser() user: AuthenticatedUser, @Headers('idempotency-key') rawKey: string | undefined, @Body() body: unknown, @Res({ passthrough: true }) response: Response) {
     return sendIdempotent(response, await this.repository.createWorkout(user.id, requireIdempotencyKey(rawKey), parseBody(createWorkoutSchema, body)));
   }

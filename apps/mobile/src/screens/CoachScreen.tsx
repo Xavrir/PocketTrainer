@@ -1,5 +1,202 @@
 import React from 'react';
-import {Pressable, StyleSheet, Text, View} from 'react-native';
-import {colors, radius, spacing, type} from '../design/tokens';
-export function CoachScreen(){return <View style={styles.screen}><View style={styles.camera}><View style={styles.skeleton}><View style={styles.head}/><View style={styles.spine}/><View style={styles.arm}/><View style={styles.leg}/></View><View style={styles.status}><Text style={styles.statusText}>READY TO COACH</Text><Text style={styles.statusSub}>Place your phone at hip height.</Text></View></View><View style={styles.panel}><Text style={styles.eyebrow}>TODAY’S COACH</Text><Text style={styles.title}>Own your squat.</Text><Text style={styles.body}>8 minutes · bodyweight · beginner</Text><Pressable accessibilityRole="button" style={styles.cta}><Text style={styles.ctaText}>SET UP CAMERA</Text></Pressable></View></View>}
-const styles=StyleSheet.create({screen:{flex:1,backgroundColor:colors.canvas},camera:{flex:1,backgroundColor:'#211D1D',margin:spacing.lg,borderRadius:radius.card,overflow:'hidden',justifyContent:'flex-end',minHeight:390},skeleton:{position:'absolute',alignSelf:'center',top:84,width:130,height:260,alignItems:'center'},head:{width:52,height:52,borderRadius:26,borderWidth:3,borderColor:colors.coral},spine:{height:106,width:3,backgroundColor:colors.coral,marginTop:5},arm:{position:'absolute',top:83,width:130,height:3,backgroundColor:colors.coral,transform:[{rotate:'18deg'}]},leg:{position:'absolute',bottom:0,width:110,height:3,backgroundColor:colors.mint,transform:[{rotate:'-35deg'}]},status:{backgroundColor:'rgba(13,11,11,.78)',padding:spacing.md},statusText:{...type.micro,color:colors.mint,letterSpacing:1},statusSub:{...type.support,color:colors.text,marginTop:3},panel:{paddingHorizontal:spacing.lg,paddingBottom:spacing.lg},eyebrow:{...type.micro,color:colors.coral,letterSpacing:1},title:{...type.h1,color:colors.text,marginTop:spacing.xs},body:{...type.support,color:colors.secondary,marginTop:spacing.xs},cta:{height:56,backgroundColor:colors.coral,borderRadius:radius.control,alignItems:'center',justifyContent:'center',marginTop:spacing.lg},ctaText:{...type.body,color:colors.canvas,fontWeight:'800',letterSpacing:.8}});
+import {
+  ImageBackground,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { colors, radius, spacing, type } from '../design/tokens';
+import { Icon, IconName } from '../components/Icon';
+import { PrimaryButton } from '../components/PrimaryButton';
+
+type Props = { onAssessment: () => void; onWorkout: () => void };
+export function CoachScreen({ onAssessment, onWorkout }: Props) {
+  return (
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.eyebrow}>PELATIH SAKU</Text>
+          <Text style={styles.title}>Siap bergerak?</Text>
+        </View>
+        <View style={styles.privacy}>
+          <Icon color={colors.mint} name="shield" size={19} />
+          <Text style={styles.privacyText}>ON-DEVICE</Text>
+        </View>
+      </View>
+      <ImageBackground
+        imageStyle={styles.heroImage}
+        source={require('../assets/images/home-hero.jpg')}
+        style={styles.hero}
+      >
+        <View style={styles.scrim} />
+        <View style={styles.heroTop}>
+          <View style={styles.live}>
+            <View style={styles.liveDot} />
+            <Text style={styles.liveText}>REKOMENDASI HARI INI</Text>
+          </View>
+          <Text style={styles.heroTitle}>Kuasai squat-mu.</Text>
+          <Text style={styles.heroMeta}>8 menit · 2 set · Tanpa alat</Text>
+        </View>
+        <PrimaryButton label="Siapkan kamera" onPress={onWorkout} />
+      </ImageBackground>
+      <Text style={styles.section}>Pilih mode</Text>
+      <View style={styles.options}>
+        {[
+          {
+            icon: 'spark',
+            title: 'Latihan cepat',
+            body: 'Pilih satu gerakan untuk melatih bentuk.',
+            tag: 'PRAKTIK',
+          },
+          {
+            icon: 'camera',
+            title: 'Asesmen gerak',
+            body: 'Perbarui kemampuan dan jalur personalmu.',
+            tag: '3 MENIT',
+          },
+        ].map((item, index) => (
+          <Pressable
+            key={item.title}
+            onPress={index === 1 ? onAssessment : onWorkout}
+            style={({ pressed }) => [styles.option, pressed && styles.pressed]}
+          >
+            <View style={styles.optionIcon}>
+              <Icon
+                color={index === 0 ? colors.violet : colors.mint}
+                name={item.icon as IconName}
+              />
+            </View>
+            <View style={styles.optionCopy}>
+              <View style={styles.optionTitleRow}>
+                <Text style={styles.optionTitle}>{item.title}</Text>
+                <Text style={styles.optionTag}>{item.tag}</Text>
+              </View>
+              <Text style={styles.optionBody}>{item.body}</Text>
+            </View>
+            <Icon color={colors.muted} name="chevron" size={20} />
+          </Pressable>
+        ))}
+      </View>
+      <View style={styles.safety}>
+        <Icon color={colors.amber} name="shield" size={20} />
+        <Text style={styles.safetyText}>
+          Pastikan area 2 × 2 meter kosong. Hentikan sesi jika terasa nyeri.
+        </Text>
+      </View>
+    </ScrollView>
+  );
+}
+const styles = StyleSheet.create({
+  screen: { backgroundColor: colors.canvas, flex: 1 },
+  content: { padding: spacing.lg, paddingBottom: spacing.xxl },
+  header: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  eyebrow: { ...type.micro, color: colors.coral, letterSpacing: 1 },
+  title: { ...type.h1, color: colors.text, marginTop: 3 },
+  privacy: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(102,221,177,.08)',
+    borderColor: 'rgba(102,221,177,.25)',
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 5,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 8,
+  },
+  privacyText: {
+    ...type.micro,
+    color: colors.mint,
+    fontSize: 9,
+    letterSpacing: 0.5,
+  },
+  hero: {
+    height: 330,
+    justifyContent: 'space-between',
+    marginTop: spacing.xl,
+    overflow: 'hidden',
+    padding: spacing.lg,
+  },
+  heroImage: { borderRadius: radius.card },
+  scrim: {
+    backgroundColor: 'rgba(13,11,11,.45)',
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  heroTop: { maxWidth: 250 },
+  live: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(13,11,11,.8)',
+    borderRadius: radius.pill,
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 7,
+  },
+  liveDot: {
+    backgroundColor: colors.coral,
+    borderRadius: 4,
+    height: 7,
+    width: 7,
+  },
+  liveText: {
+    ...type.micro,
+    color: colors.text,
+    fontSize: 9,
+    letterSpacing: 0.5,
+  },
+  heroTitle: { ...type.h1, color: colors.text, marginTop: spacing.lg },
+  heroMeta: { ...type.support, color: colors.text, marginTop: spacing.xs },
+  section: { ...type.section, color: colors.text, marginTop: spacing.xl },
+  options: { gap: spacing.sm, marginTop: spacing.sm },
+  option: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    minHeight: 86,
+    padding: spacing.md,
+  },
+  pressed: { opacity: 0.72 },
+  optionIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.raised,
+    borderRadius: 14,
+    height: 48,
+    justifyContent: 'center',
+    width: 48,
+  },
+  optionCopy: { flex: 1 },
+  optionTitleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  optionTitle: { ...type.card, color: colors.text, fontSize: 15 },
+  optionTag: { ...type.micro, color: colors.coral, fontSize: 9 },
+  optionBody: { ...type.support, color: colors.secondary, marginTop: 3 },
+  safety: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+    paddingHorizontal: spacing.xs,
+  },
+  safetyText: { ...type.micro, color: colors.secondary, flex: 1 },
+});

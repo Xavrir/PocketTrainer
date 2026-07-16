@@ -13,11 +13,24 @@ import type {
   Identity,
   Profile,
   Progress,
+  PrivacyDeletion,
+  PrivacyExport,
   SkillMastery,
   WorkoutCompletion,
   WorkoutPlan,
   WorkoutSession,
 } from '../domain/domain.types';
+import { calculateStreakCounts } from '../domain/progress-policy';
+import {
+  accessContext,
+  canonicalizeWorkoutResults,
+  evaluateLessonAccess,
+  evaluateWorkoutResults,
+  findCanonicalWorkout,
+  isLessonLaunchable,
+  launchableLessonIds,
+  validateWorkoutResults,
+} from '../domain/workout-policy';
 import {
   PocketTrainerRepository,
   type CompleteWorkoutInput,
@@ -40,6 +53,7 @@ type UserState = {
   streakDays: Set<string>;
   achievements: Map<string, string>;
   processed: Map<string, { operation: string; payloadHash: string; value: unknown }>;
+  deletedAt?: string;
 };
 
 const DAILY_WORKOUT_XP_CAP = 500;
@@ -72,10 +86,16 @@ export class InMemoryPocketTrainerRepository extends PocketTrainerRepository {
   }
 
   async close(): Promise<void> {}
+  async ping(): Promise<boolean> { return true; }
+  async processOutboxBatch(): Promise<number> { return 0; }
 
   async resolveIdentity(authSubject: string): Promise<Identity> {
     const existingId = this.bySubject.get(authSubject);
-    if (existingId) return this.requireUser(existingId).identity;
+    if (existingId) {
+      const user = this.users.get(existingId);
+      if (!user || user.deletedAt) throw new ApiError('ACCOUNT_DELETED', 'This account is no longer active.', HttpStatus.GONE);
+      return user.identity;
+    }
     const id = randomUUID();
     const identity: Identity = { id, authSubject, roles: ['USER'] };
     this.bySubject.set(authSubject, id);
@@ -141,12 +161,58 @@ export class InMemoryPocketTrainerRepository extends PocketTrainerRepository {
     if (!course) return null;
     const user = this.requireUser(userId);
     const progress = this.buildProgress(user);
-    const lessonStates = Object.fromEntries(course.units.flatMap((unit) => unit.lessons).map((lesson) => [lesson.id, this.lessonState(lesson, progress, user.profile)]));
+    const context = accessContext(progress, user.profile);
+    const lessonStates = Object.fromEntries(course.units.flatMap((unit) => unit.lessons).map((lesson) => [lesson.id, evaluateLessonAccess(lesson, context)]));
     return { course, lessonStates };
   }
 
   async getProgress(userId: string): Promise<Progress> {
     return this.buildProgress(this.requireUser(userId));
+  }
+
+  async getPrivacyExport(userId: string): Promise<PrivacyExport> {
+    const user = this.requireUser(userId);
+    return {
+      formatVersion: 1,
+      generatedAt: new Date().toISOString(),
+      user: { id: user.identity.id, authSubject: user.identity.authSubject },
+      profile: user.profile,
+      consents: [...user.consents.values()],
+      assessments: [...user.assessments.values()],
+      currentPlan: user.plan,
+      progress: this.buildProgress(user),
+      workouts: [...user.workouts.values()],
+      manifest: {
+        includes: ['profile', 'consents', 'assessments', 'currentPlan', 'progress', 'workouts'],
+        excludes: ['raw_camera_frames', 'pose_landmarks', 'access_tokens'],
+      },
+    };
+  }
+
+  async deleteAccount(userId: string, key: string): Promise<IdempotencyResult<PrivacyDeletion>> {
+    const user = this.requireUser(userId);
+    return this.idempotent(user, key, 'privacy.account.delete', {}, () => {
+      const completedAt = new Date().toISOString();
+      user.profile = null;
+      user.consents.clear();
+      user.assessments.clear();
+      user.plan = null;
+      user.workouts.clear();
+      user.xp = [];
+      user.completedLessons.clear();
+      user.mastery.clear();
+      user.streakDays.clear();
+      user.achievements.clear();
+      user.deletedAt = completedAt;
+      return {
+        action: 'account_deleted',
+        completedAt,
+        manifest: {
+          deleted: ['profile', 'consents', 'assessments', 'plans', 'workouts', 'progress', 'idempotency_records'],
+          retained: ['account_deletion_audit_marker'],
+        },
+      };
+    });
   }
 
   async createAssessment(userId: string, key: string): Promise<IdempotencyResult<Assessment>> {
@@ -188,7 +254,12 @@ export class InMemoryPocketTrainerRepository extends PocketTrainerRepository {
   async createWorkout(userId: string, key: string, input: CreateWorkoutInput) {
     const user = this.requireUser(userId);
     return this.idempotent(user, key, 'workout.create', input, () => {
-      if (!this.findLesson(input.lessonId)) throw new ApiError('LESSON_NOT_FOUND', 'Lesson was not found.', HttpStatus.NOT_FOUND);
+      const canonical = findCanonicalWorkout(this.catalog, input.lessonId);
+      if (!canonical) throw new ApiError('LESSON_NOT_FOUND', 'Lesson was not found.', HttpStatus.NOT_FOUND);
+      const accessState = evaluateLessonAccess(canonical.lesson, accessContext(this.buildProgress(user), user.profile));
+      if (!isLessonLaunchable(accessState)) {
+        throw new ApiError('LESSON_NOT_LAUNCHABLE', 'This lesson is not currently launchable.', HttpStatus.CONFLICT, true, { accessState });
+      }
       const session: WorkoutSession = { id: randomUUID(), lessonId: input.lessonId, status: 'in_progress', startedAt: input.startedAt, results: [] };
       user.workouts.set(session.id, session);
       return session;
@@ -200,8 +271,10 @@ export class InMemoryPocketTrainerRepository extends PocketTrainerRepository {
     return this.idempotent(user, key, 'workout.results', { sessionId, results }, () => {
       const session = this.requireWorkout(user, sessionId);
       if (session.status !== 'in_progress') throw new ApiError('WORKOUT_NOT_ACTIVE', 'Workout results cannot be changed after completion.', HttpStatus.CONFLICT);
+      const canonical = this.requireCanonicalWorkout(session.lessonId);
+      this.assertCanonicalResults(canonical, results);
       const byId = new Map(session.results.map((result) => [result.clientResultId, result]));
-      for (const result of results) byId.set(result.clientResultId, result);
+      for (const result of canonicalizeWorkoutResults(canonical, results)) byId.set(result.clientResultId, result);
       session.results = [...byId.values()];
       return session;
     });
@@ -213,52 +286,41 @@ export class InMemoryPocketTrainerRepository extends PocketTrainerRepository {
       const session = this.requireWorkout(user, sessionId);
       if (session.status !== 'in_progress') throw new ApiError('WORKOUT_ALREADY_COMPLETED', 'This workout has already been completed.', HttpStatus.CONFLICT);
       if (session.results.length === 0) throw new ApiError('WORKOUT_RESULTS_REQUIRED', 'Upload at least one exercise result before completion.', HttpStatus.UNPROCESSABLE_ENTITY, true);
-
-      const eligible = session.results.filter((result) => result.trackingEligible && result.formScore !== undefined);
-      const averageForm = eligible.length ? eligible.reduce((sum, result) => sum + result.formScore!, 0) / eligible.length : null;
-      const averageCompletion = session.results.reduce((sum, result) => sum + result.completionScore, 0) / session.results.length;
-      const progressionSuppressed = input.painReported || eligible.length !== session.results.length || averageForm === null;
-      const before = this.unlockedLessons(user);
+      const canonical = this.requireCanonicalWorkout(session.lessonId);
+      this.assertCanonicalResults(canonical, session.results);
+      const evaluation = evaluateWorkoutResults(canonical, session.results, input);
+      const before = launchableLessonIds(this.catalog, accessContext(this.buildProgress(user), user.profile));
       const masteryChanges: SkillMastery[] = [];
 
-      if (input.painReported) {
-        for (const result of session.results) {
-          const exercise = this.catalog.exercises.find((item) => item.id === result.exerciseDefinitionId);
-          if (!exercise) continue;
-          const existing = user.mastery.get(exercise.exerciseKey) ?? this.emptyMastery(exercise.exerciseKey);
-          const changed = { ...existing, restricted: true, updatedAt: input.completedAt };
-          user.mastery.set(exercise.exerciseKey, changed);
-          masteryChanges.push(changed);
-        }
-      } else if (!progressionSuppressed && averageForm >= 85 && averageCompletion >= 90 && input.perceivedDifficulty <= 6) {
-        for (const result of session.results) {
-          const exercise = this.catalog.exercises.find((item) => item.id === result.exerciseDefinitionId);
-          if (!exercise || result.formScore === undefined) continue;
-          const existing = user.mastery.get(exercise.exerciseKey) ?? this.emptyMastery(exercise.exerciseKey);
-          const changed: SkillMastery = {
-            ...existing,
-            bestFormScore: Math.max(existing.bestFormScore, Math.round(result.formScore)),
-            qualifyingSessions: existing.qualifyingSessions + 1,
-            mastered: existing.qualifyingSessions + 1 >= 2,
-            updatedAt: input.completedAt,
-          };
-          user.mastery.set(exercise.exerciseKey, changed);
-          masteryChanges.push(changed);
-        }
+      if (evaluation.masteryQualifies && evaluation.averageForm !== null) {
+        const exerciseKey = canonical.exercise.exerciseKey;
+        const existing = user.mastery.get(exerciseKey) ?? this.emptyMastery(exerciseKey);
+        const changed: SkillMastery = {
+          ...existing,
+          bestFormScore: Math.max(existing.bestFormScore, Math.round(evaluation.averageForm)),
+          qualifyingSessions: existing.qualifyingSessions + 1,
+          mastered: existing.qualifyingSessions + 1 >= 2,
+          updatedAt: input.completedAt,
+        };
+        user.mastery.set(exerciseKey, changed);
+        masteryChanges.push(changed);
       }
 
-      if (!input.painReported && averageCompletion >= 90) user.completedLessons.add(session.lessonId);
-      const lesson = this.findLesson(session.lessonId)!;
-      const requestedXp = input.painReported ? 0 : lesson.xpReward + (averageForm !== null && averageForm >= 90 ? 20 : 0);
+      if (!evaluation.progressionSuppressed) user.completedLessons.add(session.lessonId);
+      const requestedXp = evaluation.progressionSuppressed
+        ? 0
+        : canonical.lesson.xpReward + (evaluation.averageForm !== null && evaluation.averageForm >= 90 ? 20 : 0);
       const day = localDate(input.completedAt, user.profile?.timezone);
       const earnedToday = user.xp.filter((entry) => entry.eventType === 'workout' && localDate(entry.createdAt, user.profile?.timezone) === day).reduce((sum, entry) => sum + entry.points, 0);
       const xpAwarded = Math.max(0, Math.min(requestedXp, DAILY_WORKOUT_XP_CAP - earnedToday));
       if (xpAwarded > 0) user.xp.push({ points: xpAwarded, eventType: 'workout', createdAt: input.completedAt });
-      user.streakDays.add(day);
-      if (user.completedLessons.size >= 1 && !user.achievements.has('first_step')) user.achievements.set('first_step', input.completedAt);
+      if (!evaluation.progressionSuppressed) {
+        user.streakDays.add(day);
+        if (user.completedLessons.size >= 1 && !user.achievements.has('first_step')) user.achievements.set('first_step', input.completedAt);
+      }
 
       const newStatus: WorkoutSession['status'] = input.painReported ? 'stopped_for_safety' : 'completed';
-      const after = this.unlockedLessons(user);
+      const after = launchableLessonIds(this.catalog, accessContext(this.buildProgress(user), user.profile));
       const totalXp = user.xp.reduce((sum, entry) => sum + entry.points, 0);
       const completion: WorkoutCompletion = {
         xpAwarded,
@@ -268,7 +330,7 @@ export class InMemoryPocketTrainerRepository extends PocketTrainerRepository {
         masteryChanges,
         newlyUnlockedLessonIds: [...after].filter((id) => !before.has(id)),
         planRevision: user.plan?.revision ?? 0,
-        progressionSuppressed,
+        progressionSuppressed: evaluation.progressionSuppressed,
         ...(input.painReported ? { safetyMessage: { id: 'Hentikan latihan ini. Pilih variasi yang lebih ringan dan cari bantuan profesional bila nyeri berlanjut.', en: 'Stop this exercise. Choose a safer variation and seek professional help if pain continues.' } } : {}),
       };
       user.workouts.set(sessionId, { ...session, status: newStatus, completedAt: input.completedAt, summary: completion });
@@ -307,45 +369,28 @@ export class InMemoryPocketTrainerRepository extends PocketTrainerRepository {
     const today = localDate(now, user.profile?.timezone);
     const total = user.xp.reduce((sum, entry) => sum + entry.points, 0);
     const todayXp = user.xp.filter((entry) => localDate(entry.createdAt, user.profile?.timezone) === today).reduce((sum, entry) => sum + entry.points, 0);
-    const streak = this.calculateStreak(user.streakDays, today);
+    const streak = calculateStreakCounts(user.streakDays, today);
     return {
       xp: { total, today: todayXp, dailyCap: DAILY_WORKOUT_XP_CAP, level: Math.floor(total / XP_PER_LEVEL) + 1, currentLevelXp: total % XP_PER_LEVEL, nextLevelXp: XP_PER_LEVEL },
-      streak: { current: streak, longest: streak, todayStatus: user.streakDays.has(today) ? 'active' : 'open' },
+      streak: { current: streak.current, longest: streak.longest, todayStatus: user.streakDays.has(today) ? 'active' : 'open' },
       completedLessonIds: [...user.completedLessons],
       mastery: [...user.mastery.values()],
       achievements: [...user.achievements].map(([key, unlockedAt]) => ({ key, unlockedAt })),
     };
   }
 
-  private calculateStreak(days: Set<string>, today: string): number {
-    let count = 0;
-    const cursor = new Date(`${today}T12:00:00Z`);
-    while (days.has(cursor.toISOString().slice(0, 10))) {
-      count += 1;
-      cursor.setUTCDate(cursor.getUTCDate() - 1);
-    }
-    return count;
-  }
-
   private emptyMastery(exerciseKey: string): SkillMastery {
     return { exerciseKey, bestFormScore: 0, qualifyingSessions: 0, mastered: false, restricted: false, updatedAt: new Date(0).toISOString() };
   }
 
-  private findLesson(id: string) {
-    return this.catalog.tracks.flatMap((track) => track.courses).flatMap((course) => course.units).flatMap((unit) => unit.lessons).find((lesson) => lesson.id === id);
+  private requireCanonicalWorkout(lessonId: string) {
+    const canonical = findCanonicalWorkout(this.catalog, lessonId);
+    if (!canonical) throw new ApiError('LESSON_NOT_FOUND', 'Lesson was not found.', HttpStatus.NOT_FOUND);
+    return canonical;
   }
 
-  private lessonState(lesson: ReturnType<InMemoryPocketTrainerRepository['findLesson']> & {}, progress: Progress, profile: Profile | null): string {
-    if (progress.completedLessonIds.includes(lesson.id)) return 'completed';
-    if (lesson.requirements.requiredEquipment.some((equipment) => !profile?.equipment.includes(equipment))) return 'gated_equipment';
-    if (lesson.requirements.prerequisiteLessonIds.some((id) => !progress.completedLessonIds.includes(id))) return 'locked_prerequisite';
-    if (lesson.requirements.requiredMasteryKeys.some((key) => !progress.mastery.some((item) => item.exerciseKey === key && item.mastered && !item.restricted))) return 'locked_mastery';
-    if (progress.xp.level < lesson.requirements.minimumLevel) return 'locked_level';
-    return 'available';
-  }
-
-  private unlockedLessons(user: UserState): Set<string> {
-    const progress = this.buildProgress(user);
-    return new Set(this.catalog.tracks.flatMap((track) => track.courses).flatMap((course) => course.units).flatMap((unit) => unit.lessons).filter((lesson) => this.lessonState(lesson, progress, user.profile) === 'available').map((lesson) => lesson.id));
+  private assertCanonicalResults(canonical: ReturnType<InMemoryPocketTrainerRepository['requireCanonicalWorkout']>, results: readonly ExerciseResultInput[]): void {
+    const issue = validateWorkoutResults(canonical, results);
+    if (issue) throw new ApiError(issue.code, issue.message, HttpStatus.UNPROCESSABLE_ENTITY, true);
   }
 }

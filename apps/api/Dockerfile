@@ -1,20 +1,22 @@
-FROM node:20-alpine AS dependencies
-WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm ci
+FROM node:24-alpine AS builder
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable && corepack prepare pnpm@11.9.0 --activate
+WORKDIR /workspace
 
-FROM dependencies AS builder
-COPY tsconfig.json tsconfig.build.json ./
-COPY src ./src
-RUN npm run build
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/api/package.json ./apps/api/package.json
+RUN pnpm install --frozen-lockfile --filter @pockettrainer/api...
 
-FROM node:20-alpine AS runtime
+COPY apps/api ./apps/api
+RUN pnpm --filter @pockettrainer/api build
+RUN pnpm --filter @pockettrainer/api deploy --prod --legacy /opt/pockettrainer-api
+
+FROM node:24-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 RUN addgroup -S pockettrainer && adduser -S pockettrainer -G pockettrainer
-COPY --from=dependencies /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
-COPY package.json ./package.json
+COPY --from=builder --chown=pockettrainer:pockettrainer /opt/pockettrainer-api ./
 USER pockettrainer
 EXPOSE 3000
 CMD ["node", "dist/main.js"]

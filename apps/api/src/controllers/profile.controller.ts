@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpStatus, Put, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpStatus, Inject, Put, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiError } from '../common/api-error';
 import { CurrentUser } from '../common/current-user.decorator';
@@ -10,7 +10,7 @@ import { PocketTrainerRepository } from '../repositories/pocket-trainer.reposito
 
 @Controller('v1/profile')
 export class ProfileController {
-  constructor(private readonly repository: PocketTrainerRepository) {}
+  constructor(@Inject(PocketTrainerRepository) private readonly repository: PocketTrainerRepository) {}
   @Get() async get(@CurrentUser() user: AuthenticatedUser) {
     const profile = await this.repository.getProfile(user.id);
     if (!profile) throw new ApiError('PROFILE_NOT_FOUND', 'Complete onboarding to create a profile.', HttpStatus.NOT_FOUND, true);

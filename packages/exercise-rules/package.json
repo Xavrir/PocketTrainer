@@ -1,6 +1,6 @@
 {
   "name": "@pockettrainer/exercise-rules",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -15,9 +15,9 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "npm run build && node --test test/*.test.mjs"
+    "build": "tsc -b tsconfig.json",
+    "typecheck": "tsc -b tsconfig.json",
+    "test": "tsc -b tsconfig.json && node --test test/*.test.mjs"
   },
   "dependencies": {
     "@pockettrainer/contracts": "workspace:*",

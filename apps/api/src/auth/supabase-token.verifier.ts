@@ -16,7 +16,7 @@ export class SupabaseTokenVerifier {
       : null;
   }
 
-  async verify(token: string): Promise<JWTPayload> {
+  async verify(token: string): Promise<JWTPayload & { sub: string }> {
     if (!this.jwks || !this.config.SUPABASE_URL) throw new Error('Supabase authentication is not configured.');
     const issuer = this.config.SUPABASE_JWT_ISSUER ?? `${this.config.SUPABASE_URL.replace(/\/$/, '')}/auth/v1`;
     const { payload } = await jwtVerify(token, this.jwks, {
@@ -25,6 +25,12 @@ export class SupabaseTokenVerifier {
       algorithms: ['ES256', 'RS256'],
       clockTolerance: 5,
     });
-    return payload;
+    if (typeof payload.sub !== 'string' || payload.sub.trim().length === 0 || payload.sub.length > 200) {
+      throw new Error('The access token has no usable subject claim.');
+    }
+    if (typeof payload.iss !== 'string' || typeof payload.exp !== 'number') {
+      throw new Error('The access token is missing issuer or expiry claims.');
+    }
+    return payload as JWTPayload & { sub: string };
   }
 }

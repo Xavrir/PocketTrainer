@@ -4,5 +4,6 @@ export * from "./numbers.js";
 export * from "./safety.js";
 export * from "./scoring.js";
 export * from "./streak.js";
+export * from "./state-machine.js";
 export * from "./unlock.js";
 export * from "./xp.js";

@@ -1,6 +1,6 @@
 # Checkpoints
 
-Each checkpoint is a conventional commit on `main`, an annotated Git tag, and a GitHub prerelease/release with generated notes. A checkpoint is published only after its evidence passes.
+The hackathon repository uses exactly three conventional commits on `master`. Each commit has an annotated Git tag and GitHub release, so reviewers can inspect the product at three honest milestones.
 
 ## v0.1.0-foundation
 
@@ -11,33 +11,41 @@ Each checkpoint is a conventional commit on `main`, an annotated Git tag, and a 
 - NestJS and PostgreSQL/RLS foundation.
 - Secret scan and clean install/build evidence.
 
-## v0.2.0-coaching
+## v0.1.1-infra
+
+- PostgreSQL schema, forced RLS, ownership indexes, and seeded catalog.
+- Supabase JWT-to-internal-user boundary.
+- Azure Container Apps and Cloudflare/R2 deployment documentation.
+- CI, contribution, security, issue, and release templates.
+
+## v0.2.0-demo
 
 - Onboarding and assessment flow.
-- Android native camera and MediaPipe boundary.
+- Android CameraX ImageAnalysis preview, explicit runtime permission flow, and MediaPipe boundary.
 - Four exercise state machines and golden tests.
 - Calibration, live coaching, tracking-loss recovery, and results pages.
 - Every page independently reviewed from a rendered screenshot.
-
-## v0.3.0-progression
-
-- Encrypted local persistence and recoverable session lifecycle.
 - Idempotent batch sync and authoritative XP ledger.
 - Mastery plus level unlock gates, streak protection, achievements.
-- Offline/reconnect integration evidence.
+- Supabase Cloud email/password Auth with persisted sessions and NestJS JWKS
+  verification.
+- Android Keystore-wrapped SQLCipher storage, durable workout queue, cached
+  bootstrap, reconnect flush, and authoritative sync acknowledgement.
+- Samsung SM-A556E camera/inference smoke-test evidence.
 
-## v0.4.0-beta
+## Still required before public beta
 
-- Representative Android device matrix.
-- Qualified fitness review records.
-- Privacy export/deletion and security review.
-- Accessibility and performance gates.
-- Signed APK and closed-beta release notes.
+- App-level ambiguous-response/process-death recovery acceptance evidence.
+- Representative low/mid-range Android performance matrix.
+- Qualified fitness review and validated golden-video dataset.
+- Privacy export/deletion, final accessibility audit, and Azure/Cloudflare
+  production provisioning.
+- Play-signed release build; the hackathon artifact is debug-signed.
 
 ## Tagging commands
 
 ```bash
-git tag -a v0.1.0-foundation -m "PocketTrainer foundation checkpoint"
-git push origin v0.1.0-foundation
-gh release create v0.1.0-foundation --prerelease --generate-notes
+git tag -a v0.2.0-demo -m "PocketTrainer Android demo checkpoint"
+git push origin v0.2.0-demo
+gh release create v0.2.0-demo --prerelease --generate-notes
 ```

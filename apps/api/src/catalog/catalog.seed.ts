@@ -30,7 +30,7 @@ export function createCatalog(contentBaseUrl: string): Catalog {
     },
     {
       id: '10000000-0000-4000-8000-000000000003',
-      exerciseKey: 'warrior_two',
+      exerciseKey: 'warrior_ii',
       version: 1,
       scoringVersion: '1.0.0',
       poseModelVersion: 'mediapipe-pose-landmarker-1',
@@ -108,7 +108,7 @@ export function createCatalog(contentBaseUrl: string): Catalog {
       order: 2,
       target: { type: 'seconds' as const, value: 20 },
       xpReward: 80,
-      requirements: { minimumLevel: 2, prerequisiteLessonIds: ['40000000-0000-4000-8000-000000000004'], requiredMasteryKeys: ['warrior_two'], requiredEquipment: [] },
+      requirements: { minimumLevel: 2, prerequisiteLessonIds: ['40000000-0000-4000-8000-000000000004'], requiredMasteryKeys: ['warrior_ii'], requiredEquipment: [] },
     },
     mobility: {
       id: '40000000-0000-4000-8000-000000000006',

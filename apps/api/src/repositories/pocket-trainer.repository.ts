@@ -10,6 +10,8 @@ import type {
   Identity,
   Profile,
   Progress,
+  PrivacyDeletion,
+  PrivacyExport,
   WorkoutCompletion,
   WorkoutPlan,
   WorkoutSession,
@@ -21,7 +23,7 @@ export type UpdateConsentInput = Pick<Consent, 'granted' | 'version'>;
 export type CreateWorkoutInput = {
   lessonId: string;
   startedAt: string;
-  deviceId?: string;
+  deviceId?: string | undefined;
   applicationVersion: string;
 };
 
@@ -33,6 +35,8 @@ export type CompleteWorkoutInput = {
 
 export abstract class PocketTrainerRepository {
   abstract close(): Promise<void>;
+  abstract ping(): Promise<boolean>;
+  abstract processOutboxBatch(): Promise<number>;
   abstract resolveIdentity(authSubject: string): Promise<Identity>;
   abstract getBootstrap(userId: string): Promise<Bootstrap>;
   abstract getProfile(userId: string): Promise<Profile | null>;
@@ -42,6 +46,8 @@ export abstract class PocketTrainerRepository {
   abstract getCatalog(): Promise<Catalog>;
   abstract getCourse(userId: string, courseId: string): Promise<{ course: Course; lessonStates: Record<string, string> } | null>;
   abstract getProgress(userId: string): Promise<Progress>;
+  abstract getPrivacyExport(userId: string): Promise<PrivacyExport>;
+  abstract deleteAccount(userId: string, key: string): Promise<IdempotencyResult<PrivacyDeletion>>;
   abstract createAssessment(userId: string, key: string): Promise<IdempotencyResult<Assessment>>;
   abstract completeAssessment(userId: string, assessmentId: string, key: string, result: AssessmentResult): Promise<IdempotencyResult<{ assessment: Assessment; xpAwarded: number; currentPlan: WorkoutPlan }>>;
   abstract getCurrentPlan(userId: string): Promise<WorkoutPlan | null>;

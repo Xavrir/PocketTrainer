@@ -117,6 +117,7 @@ export type MasteryEvidence = Readonly<{
 export type MasteryDecision = Readonly<{
   action: "progress" | "maintain" | "regress" | "exclude";
   masteryScore: number;
+  progressionCriteriaMet: boolean;
   qualifyingSessionIds: readonly Uuid[];
   reasonCodes: readonly PlanChange["reasonCode"][];
 }>;
@@ -182,7 +183,7 @@ export type XpAwardDecision = Readonly<{
   awardedPoints: number;
   cappedPoints: number;
   duplicate: boolean;
-  dailyTotalAfterAward: number;
+  dailyCappedTotalAfterAward: number;
 }>;
 
 export type StreakDayType = "WORKOUT" | "RECOVERY" | "ALTERNATIVE_ACTIVITY";

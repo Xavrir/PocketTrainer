@@ -5,6 +5,7 @@ import {
   calculateConsistency,
   calculateRangeRuleScore,
   calculateSessionScore,
+  evaluateFormRule,
 } from "../dist/index.js";
 
 test("range scoring is transparent at ideal, tolerance, and hard boundaries", () => {
@@ -17,17 +18,32 @@ test("range scoring is transparent at ideal, tolerance, and hard boundaries", ()
   assert.equal(calculateRangeRuleScore(140, ideal, hard), 0);
 });
 
+test("rule evaluation derives critical pass status from the hard safety range", () => {
+  const rule = {
+    id: "knee-track",
+    phases: ["bottom"],
+    metric: "front_knee_ankle_offset",
+    idealRange: { minimum: 0, maximum: 0.12 },
+    hardRange: { minimum: 0, maximum: 0.25 },
+    weight: 1,
+    phaseWeight: 1,
+    critical: true,
+    feedbackKey: "knee",
+  };
+  assert.equal(evaluateFormRule(rule, 0.2).passed, true);
+  assert.equal(evaluateFormRule(rule, 0.3).passed, false);
+});
+
 test("session score follows the 50/25/15/10 formula", () => {
   const score = calculateSessionScore({
     ruleScores: [
-      { ruleId: "a", score: 80, weight: 0.6, phaseWeight: 1 },
-      { ruleId: "b", score: 100, weight: 0.4, phaseWeight: 1 },
+      { ruleId: "a", score: 80, weight: 0.6, phaseWeight: 1, critical: true, passed: true },
+      { ruleId: "b", score: 100, weight: 0.4, phaseWeight: 1, critical: false, passed: true },
     ],
     completion: 90,
     control: 80,
     repetitionFormScores: [88, 88],
     confidenceEligible: true,
-    criticalRulesPassed: true,
   });
   assert.deepEqual(score, {
     formAccuracy: 88,
@@ -35,19 +51,18 @@ test("session score follows the 50/25/15/10 formula", () => {
     control: 80,
     consistency: 100,
     total: 88.5,
-    progressionEligible: true,
+    criticalRulesPassed: true,
   });
 });
 
 test("low tracking confidence returns no score instead of a punitive score", () => {
   assert.equal(
     calculateSessionScore({
-      ruleScores: [{ ruleId: "a", score: 100, weight: 1, phaseWeight: 1 }],
+      ruleScores: [{ ruleId: "a", score: 100, weight: 1, phaseWeight: 1, critical: true, passed: true }],
       completion: 100,
       control: 100,
       repetitionFormScores: [100],
       confidenceEligible: false,
-      criticalRulesPassed: true,
     }),
     null,
   );
@@ -55,15 +70,21 @@ test("low tracking confidence returns no score instead of a punitive score", () 
 
 test("a critical form-rule failure can never mark a high aggregate score progression-eligible", () => {
   const score = calculateSessionScore({
-    ruleScores: [{ ruleId: "critical", score: 80, weight: 1, phaseWeight: 1 }],
+    ruleScores: [{
+      ruleId: "critical",
+      score: 80,
+      weight: 1,
+      phaseWeight: 1,
+      critical: true,
+      passed: false,
+    }],
     completion: 100,
     control: 100,
     repetitionFormScores: [100, 100],
     confidenceEligible: true,
-    criticalRulesPassed: false,
   });
   assert.ok(score.total >= 85);
-  assert.equal(score.progressionEligible, false);
+  assert.equal(score.criticalRulesPassed, false);
 });
 
 test("consistency penalizes variance without penalizing a single valid rep", () => {

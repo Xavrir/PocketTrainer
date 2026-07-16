@@ -1,0 +1,10 @@
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  src: url('./BricolageGrotesque.ttf') format('truetype');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  src: url('./PlusJakartaSans.ttf') format('truetype');
+  font-display: swap;
+}

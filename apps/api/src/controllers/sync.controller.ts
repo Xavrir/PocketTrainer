@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, Post } from '@nestjs/common';
+import { Body, Controller, Headers, Inject, Post } from '@nestjs/common';
 import { z } from 'zod';
 import { ApiError } from '../common/api-error';
 import { CurrentUser } from '../common/current-user.decorator';
@@ -29,7 +29,7 @@ const syncBatchSchema = z.object({ events: z.array(syncEventSchema).min(1).max(5
 
 @Controller('v1/sync')
 export class SyncController {
-  constructor(private readonly repository: PocketTrainerRepository) {}
+  constructor(@Inject(PocketTrainerRepository) private readonly repository: PocketTrainerRepository) {}
 
   @Post('batch')
   async batch(@CurrentUser() user: AuthenticatedUser, @Headers('idempotency-key') batchKey: string | undefined, @Body() body: unknown) {

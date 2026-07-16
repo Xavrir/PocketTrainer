@@ -4,6 +4,7 @@ import type {
   ExerciseDefinitionManifest,
   ExerciseProgression,
   ExerciseStateDefinition,
+  ExerciseStateMachineDefinition,
   FeedbackDefinition,
   FormRule,
   LandmarkName,
@@ -62,7 +63,26 @@ const METRICS = new Set([
   "single_leg_stability",
   "raised_knee_lateral_rotation",
   "center_displacement",
+  "valid_hold_duration_ms",
   "pose_confidence",
+]);
+
+const ASSESSMENT_CAPABILITIES = new Set([
+  "lower_body_control",
+  "upper_body_control",
+  "balance",
+  "mobility",
+  "core_stability",
+]);
+
+const RESTRICTION_TAGS = new Set([
+  "knee_flexion",
+  "wrist_loading",
+  "shoulder_loading",
+  "shoulder_overhead",
+  "single_leg_balance",
+  "spinal_flexion",
+  "floor_transition",
 ]);
 
 function recordAt(input: unknown, path: string): UnknownRecord {
@@ -126,6 +146,7 @@ function optionalNumberAt(input: unknown, path: string): number | undefined {
 
 function localizedTextAt(input: unknown, path: string): LocalizedText {
   const value = recordAt(input, path);
+  allowedKeys(value, ["id-ID", "en-US"], path);
   return {
     "id-ID": stringAt(value["id-ID"], `${path}.id-ID`),
     "en-US": stringAt(value["en-US"], `${path}.en-US`),
@@ -134,6 +155,10 @@ function localizedTextAt(input: unknown, path: string): LocalizedText {
 
 function parseCalibration(input: unknown, path: string): CalibrationRequirements {
   const value = recordAt(input, path);
+  allowedKeys(value, [
+    "minimumPoseConfidence", "minimumBodyCoverage", "maximumPeople",
+    "minimumReadyDurationMs", "maximumCameraTiltDegrees", "minimumLuminance",
+  ], path);
   const maximumPeople = integerAt(value.maximumPeople, `${path}.maximumPeople`, 1);
   if (maximumPeople !== 1) {
     return fail(`${path}.maximumPeople`, "must be exactly 1 for safe coaching");
@@ -150,6 +175,7 @@ function parseCalibration(input: unknown, path: string): CalibrationRequirements
 
 function parsePredicate(input: unknown, path: string): MetricPredicate {
   const value = recordAt(input, path);
+  allowedKeys(value, ["metric", "operator", "value", "maximum", "hysteresis"], path);
   const metric = stringAt(value.metric, `${path}.metric`);
   if (!METRICS.has(metric)) {
     return fail(`${path}.metric`, "is not a supported pose metric");
@@ -175,6 +201,9 @@ function parsePredicate(input: unknown, path: string): MetricPredicate {
 
 function parseState(input: unknown, path: string): ExerciseStateDefinition {
   const value = recordAt(input, path);
+  allowedKeys(value, [
+    "id", "predicates", "predicateMode", "minimumDurationMs", "allowedPreviousStates", "terminal",
+  ], path);
   return {
     id: stringAt(value.id, `${path}.id`),
     predicates: arrayAt(value.predicates, `${path}.predicates`).map((predicate, index) =>
@@ -189,8 +218,68 @@ function parseState(input: unknown, path: string): ExerciseStateDefinition {
   };
 }
 
+function parseStateMachine(input: unknown, path: string): ExerciseStateMachineDefinition {
+  const value = recordAt(input, path);
+  allowedKeys(value, [
+    "initialStateId", "resetStateId", "transitionPriority", "invalidTransitionBehavior", "holdAccumulator",
+  ], path);
+  const holdAccumulatorValue =
+    value.holdAccumulator === undefined
+      ? undefined
+      : recordAt(value.holdAccumulator, `${path}.holdAccumulator`);
+  if (holdAccumulatorValue !== undefined) {
+    allowedKeys(holdAccumulatorValue, [
+      "activeStateId", "pauseWhenActivePredicatesFail", "completionMetric",
+      "resetAfterTrackingLossMs", "resetAfterAlignmentLossMs",
+    ], `${path}.holdAccumulator`);
+  }
+  return {
+    initialStateId: stringAt(value.initialStateId, `${path}.initialStateId`),
+    resetStateId: stringAt(value.resetStateId, `${path}.resetStateId`),
+    transitionPriority: arrayAt(value.transitionPriority, `${path}.transitionPriority`).map(
+      (state, index) => stringAt(state, `${path}.transitionPriority[${index}]`),
+    ),
+    invalidTransitionBehavior: enumAt(
+      value.invalidTransitionBehavior,
+      ["retain_current_state"] as const,
+      `${path}.invalidTransitionBehavior`,
+    ),
+    ...(holdAccumulatorValue === undefined
+      ? {}
+      : {
+          holdAccumulator: {
+            activeStateId: stringAt(
+              holdAccumulatorValue.activeStateId,
+              `${path}.holdAccumulator.activeStateId`,
+            ),
+            pauseWhenActivePredicatesFail:
+              booleanAt(
+                holdAccumulatorValue.pauseWhenActivePredicatesFail,
+                `${path}.holdAccumulator.pauseWhenActivePredicatesFail`,
+              ) || fail(`${path}.holdAccumulator.pauseWhenActivePredicatesFail`, "must be true"),
+            completionMetric: enumAt(
+              holdAccumulatorValue.completionMetric,
+              ["valid_hold_duration_ms"] as const,
+              `${path}.holdAccumulator.completionMetric`,
+            ),
+            resetAfterTrackingLossMs: integerAt(
+              holdAccumulatorValue.resetAfterTrackingLossMs,
+              `${path}.holdAccumulator.resetAfterTrackingLossMs`,
+              100,
+            ),
+            resetAfterAlignmentLossMs: integerAt(
+              holdAccumulatorValue.resetAfterAlignmentLossMs,
+              `${path}.holdAccumulator.resetAfterAlignmentLossMs`,
+              100,
+            ),
+          },
+        }),
+  };
+}
+
 function parseRange(input: unknown, path: string): NumericRange {
   const value = recordAt(input, path);
+  allowedKeys(value, ["minimum", "maximum"], path);
   const minimum = optionalNumberAt(value.minimum, `${path}.minimum`);
   const maximum = optionalNumberAt(value.maximum, `${path}.maximum`);
   if (minimum === undefined && maximum === undefined) {
@@ -216,6 +305,9 @@ function assertIdealInsideHard(ideal: NumericRange, hard: NumericRange, path: st
 
 function parseRule(input: unknown, path: string): FormRule {
   const value = recordAt(input, path);
+  allowedKeys(value, [
+    "id", "phases", "metric", "idealRange", "hardRange", "weight", "phaseWeight", "critical", "feedbackKey",
+  ], path);
   const metric = stringAt(value.metric, `${path}.metric`);
   if (!METRICS.has(metric)) {
     return fail(`${path}.metric`, "is not a supported pose metric");
@@ -240,6 +332,7 @@ function parseRule(input: unknown, path: string): FormRule {
 
 function parseScoreWeights(input: unknown, path: string): ScoreWeights {
   const value = recordAt(input, path);
+  allowedKeys(value, ["formAccuracy", "completion", "control", "consistency"], path);
   const weights: ScoreWeights = {
     formAccuracy: numberAt(value.formAccuracy, `${path}.formAccuracy`, 0, 1),
     completion: numberAt(value.completion, `${path}.completion`, 0, 1),
@@ -252,6 +345,9 @@ function parseScoreWeights(input: unknown, path: string): ScoreWeights {
 
 function parseFeedback(input: unknown, path: string): FeedbackDefinition {
   const value = recordAt(input, path);
+  allowedKeys(value, [
+    "key", "ruleId", "severity", "message", "minimumErrorDurationMs", "cooldownMs", "minimumDisplayDurationMs",
+  ], path);
   return {
     key: stringAt(value.key, `${path}.key`),
     ruleId: stringAt(value.ruleId, `${path}.ruleId`),
@@ -265,10 +361,37 @@ function parseFeedback(input: unknown, path: string): FeedbackDefinition {
 
 function parseProgression(input: unknown, path: string): ExerciseProgression {
   const value = recordAt(input, path);
+  allowedKeys(value, [
+    "easierVariationKey", "harderVariationKey", "requiredEquipment",
+    "requiredCapabilities", "contraindicationTags",
+  ], path);
   const capabilities = recordAt(value.requiredCapabilities, `${path}.requiredCapabilities`);
   const parsedCapabilities: Record<string, number> = {};
   for (const [key, score] of Object.entries(capabilities)) {
+    if (!ASSESSMENT_CAPABILITIES.has(key)) {
+      fail(`${path}.requiredCapabilities.${key}`, "is not a supported assessment capability");
+    }
     parsedCapabilities[key] = numberAt(score, `${path}.requiredCapabilities.${key}`, 0, 100);
+  }
+  const requiredEquipment = arrayAt(value.requiredEquipment, `${path}.requiredEquipment`, true).map((item, index) =>
+    enumAt(
+      item,
+      ["none", "wall", "chair", "bench", "yoga_mat", "resistance_band", "dumbbell"] as const,
+      `${path}.requiredEquipment[${index}]`,
+    ),
+  );
+  const contraindicationTags = arrayAt(value.contraindicationTags, `${path}.contraindicationTags`, true).map(
+    (tag, index) => {
+      const parsed = stringAt(tag, `${path}.contraindicationTags[${index}]`);
+      return RESTRICTION_TAGS.has(parsed)
+        ? parsed as ExerciseProgression["contraindicationTags"][number]
+        : fail(`${path}.contraindicationTags[${index}]`, "is not a supported restriction tag");
+    },
+  );
+  assertUnique(requiredEquipment, `${path}.requiredEquipment`);
+  assertUnique(contraindicationTags, `${path}.contraindicationTags`);
+  if (requiredEquipment.includes("none") && requiredEquipment.length > 1) {
+    fail(`${path}.requiredEquipment`, "none cannot be combined with other equipment");
   }
   return {
     ...(value.easierVariationKey === undefined
@@ -277,17 +400,9 @@ function parseProgression(input: unknown, path: string): ExerciseProgression {
     ...(value.harderVariationKey === undefined
       ? {}
       : { harderVariationKey: stringAt(value.harderVariationKey, `${path}.harderVariationKey`) }),
-    requiredEquipment: arrayAt(value.requiredEquipment, `${path}.requiredEquipment`, true).map((item, index) =>
-      enumAt(
-        item,
-        ["none", "wall", "chair", "bench", "yoga_mat", "resistance_band", "dumbbell"] as const,
-        `${path}.requiredEquipment[${index}]`,
-      ),
-    ),
+    requiredEquipment,
     requiredCapabilities: parsedCapabilities,
-    contraindicationTags: arrayAt(value.contraindicationTags, `${path}.contraindicationTags`, true).map(
-      (tag, index) => stringAt(tag, `${path}.contraindicationTags[${index}]`),
-    ),
+    contraindicationTags,
   };
 }
 
@@ -344,6 +459,12 @@ function assertReferences(
     if (item?.ruleId !== rule.id) {
       fail(`$.rules[${index}].feedbackKey`, "must reference feedback for the same rule");
     }
+    if (rule.critical && item.severity === "coaching") {
+      fail(`$.rules[${index}].feedbackKey`, "critical rules require important or safety feedback");
+    }
+    if (item.cooldownMs < item.minimumDisplayDurationMs) {
+      fail(`$.rules[${index}].feedbackKey`, "feedback cooldown must cover its minimum display duration");
+    }
   }
 }
 
@@ -370,6 +491,13 @@ function assertTerminalStateIsReachable(states: readonly ExerciseStateDefinition
 
 function parseExerciseDefinition(input: unknown): ExerciseDefinition {
   const value = recordAt(input, "$");
+  allowedKeys(value, [
+    "exerciseKey", "exerciseDefinitionVersion", "schemaVersion", "scoringVersion",
+    "metricSpecificationVersion", "poseModelVersion", "minimumAppVersion",
+    "rollbackExerciseDefinitionVersion", "displayName", "category", "mode", "cameraView",
+    "requiredLandmarks", "calibration", "states", "stateMachine", "maximumRepDurationMs",
+    "targetHoldDurationMs", "trackingLossResetMs", "rules", "scoreWeights", "feedback", "progression",
+  ], "$");
   const mode = enumAt(value.mode, ["repetition", "hold", "assessment"] as const, "$.mode");
   const landmarks = arrayAt(value.requiredLandmarks, "$.requiredLandmarks").map((item, index) => {
     const landmark = stringAt(item, `$.requiredLandmarks[${index}]`);
@@ -381,6 +509,7 @@ function parseExerciseDefinition(input: unknown): ExerciseDefinition {
   const states = arrayAt(value.states, "$.states").map((state, index) =>
     parseState(state, `$.states[${index}]`),
   );
+  const stateMachine = parseStateMachine(value.stateMachine, "$.stateMachine");
   const rules = arrayAt(value.rules, "$.rules").map((rule, index) =>
     parseRule(rule, `$.rules[${index}]`),
   );
@@ -394,9 +523,10 @@ function parseExerciseDefinition(input: unknown): ExerciseDefinition {
   assertUnique(feedback.map((item) => item.key), "$.feedback[].key");
   assertApproximatelyOne(rules.map((rule) => rule.weight), "$.rules[].weight");
   assertReferences(states, rules, feedback);
+  assertStateMachine(stateMachine, states);
 
-  if (!states.some((state) => state.terminal)) {
-    fail("$.states", "must contain a terminal state");
+  if (states.filter((state) => state.terminal).length !== 1) {
+    fail("$.states", "must contain exactly one terminal state");
   }
 
   const maximumRepDurationMs =
@@ -410,12 +540,29 @@ function parseExerciseDefinition(input: unknown): ExerciseDefinition {
   if (mode === "repetition" && maximumRepDurationMs === undefined) {
     fail("$.maximumRepDurationMs", "is required for repetition exercises");
   }
+  if (mode === "repetition" && targetHoldDurationMs !== undefined) {
+    fail("$.targetHoldDurationMs", "is not valid for repetition exercises");
+  }
   if (mode === "hold" && targetHoldDurationMs === undefined) {
     fail("$.targetHoldDurationMs", "is required for hold exercises");
   }
+  if (mode === "hold" && maximumRepDurationMs !== undefined) {
+    fail("$.maximumRepDurationMs", "is not valid for hold exercises");
+  }
+  assertModeSemantics(mode, states, rules, stateMachine, targetHoldDurationMs);
 
   const minimumAppVersion = stringAt(value.minimumAppVersion, "$.minimumAppVersion");
   semanticVersionSchema.parse(minimumAppVersion);
+  const exerciseKey = stringAt(value.exerciseKey, "$.exerciseKey");
+  const progression = parseProgression(value.progression, "$.progression");
+  if (
+    progression.easierVariationKey === exerciseKey ||
+    progression.harderVariationKey === exerciseKey ||
+    (progression.easierVariationKey !== undefined &&
+      progression.easierVariationKey === progression.harderVariationKey)
+  ) {
+    fail("$.progression", "variation keys must be distinct from this exercise and each other");
+  }
 
   const exerciseDefinitionVersion = integerAt(
     value.exerciseDefinitionVersion,
@@ -433,10 +580,17 @@ function parseExerciseDefinition(input: unknown): ExerciseDefinition {
   );
 
   return {
-    exerciseKey: stringAt(value.exerciseKey, "$.exerciseKey"),
+    exerciseKey,
     exerciseDefinitionVersion,
-    schemaVersion: integerAt(value.schemaVersion, "$.schemaVersion", 1),
+    schemaVersion:
+      integerAt(value.schemaVersion, "$.schemaVersion", 1) === 1
+        ? 1
+        : fail("$.schemaVersion", "only exercise schema version 1 is supported"),
     scoringVersion: integerAt(value.scoringVersion, "$.scoringVersion", 1),
+    metricSpecificationVersion:
+      integerAt(value.metricSpecificationVersion, "$.metricSpecificationVersion", 1) === 1
+        ? 1
+        : fail("$.metricSpecificationVersion", "only metric specification version 1 is supported"),
     poseModelVersion: stringAt(value.poseModelVersion, "$.poseModelVersion"),
     minimumAppVersion,
     rollbackExerciseDefinitionVersion,
@@ -447,23 +601,97 @@ function parseExerciseDefinition(input: unknown): ExerciseDefinition {
     requiredLandmarks: landmarks,
     calibration: parseCalibration(value.calibration, "$.calibration"),
     states,
+    stateMachine,
     ...(maximumRepDurationMs === undefined ? {} : { maximumRepDurationMs }),
     ...(targetHoldDurationMs === undefined ? {} : { targetHoldDurationMs }),
     trackingLossResetMs: integerAt(value.trackingLossResetMs, "$.trackingLossResetMs", 100),
     rules,
     scoreWeights: parseScoreWeights(value.scoreWeights, "$.scoreWeights"),
     feedback,
-    progression: parseProgression(value.progression, "$.progression"),
+    progression,
   };
+}
+
+function assertStateMachine(
+  stateMachine: ExerciseStateMachineDefinition,
+  states: readonly ExerciseStateDefinition[],
+): void {
+  const stateIds = states.map((state) => state.id);
+  const knownStates = new Set(stateIds);
+  if (!knownStates.has(stateMachine.initialStateId)) {
+    fail("$.stateMachine.initialStateId", "must reference a known state");
+  }
+  if (!knownStates.has(stateMachine.resetStateId)) {
+    fail("$.stateMachine.resetStateId", "must reference a known state");
+  }
+  assertUnique(stateMachine.transitionPriority, "$.stateMachine.transitionPriority");
+  if (
+    stateMachine.transitionPriority.length !== stateIds.length ||
+    stateMachine.transitionPriority.some((id) => !knownStates.has(id))
+  ) {
+    fail("$.stateMachine.transitionPriority", "must list every state exactly once");
+  }
+  if (
+    stateMachine.holdAccumulator !== undefined &&
+    !knownStates.has(stateMachine.holdAccumulator.activeStateId)
+  ) {
+    fail("$.stateMachine.holdAccumulator.activeStateId", "must reference a known state");
+  }
+}
+
+function assertModeSemantics(
+  mode: ExerciseDefinition["mode"],
+  states: readonly ExerciseStateDefinition[],
+  rules: readonly FormRule[],
+  stateMachine: ExerciseStateMachineDefinition,
+  targetHoldDurationMs: number | undefined,
+): void {
+  if (mode !== "hold") {
+    if (stateMachine.holdAccumulator !== undefined) {
+      fail("$.stateMachine.holdAccumulator", "is only valid for hold exercises");
+    }
+    return;
+  }
+  const accumulator = stateMachine.holdAccumulator;
+  if (accumulator === undefined || targetHoldDurationMs === undefined) {
+    fail("$.stateMachine.holdAccumulator", "is required for hold exercises");
+  }
+  const active = states.find((state) => state.id === accumulator.activeStateId);
+  const terminal = states.find((state) => state.terminal);
+  if (active === undefined || terminal === undefined) {
+    fail("$.states", "hold exercises require active and terminal states");
+  }
+  const criticalMetrics = new Set(rules.filter((rule) => rule.critical).map((rule) => rule.metric));
+  const activeMetrics = new Set(active.predicates.map((predicate) => predicate.metric));
+  const terminalMetrics = new Set(terminal.predicates.map((predicate) => predicate.metric));
+  for (const metric of criticalMetrics) {
+    if (!activeMetrics.has(metric) || !terminalMetrics.has(metric)) {
+      fail("$.states", `hold states must preserve critical metric ${metric}`);
+    }
+  }
+  const durationPredicate = terminal.predicates.find(
+    (predicate) => predicate.metric === "valid_hold_duration_ms",
+  );
+  if (
+    durationPredicate?.operator !== "gte" ||
+    durationPredicate.value !== targetHoldDurationMs
+  ) {
+    fail("$.states", "terminal hold state must require the configured valid hold duration");
+  }
 }
 
 function parseManifest(input: unknown): ExerciseDefinitionManifest {
   const value = recordAt(input, "$");
+  allowedKeys(value, ["schemaVersion", "catalogVersion", "generatedAt", "keyId", "entries"], "$");
   const generatedAt = stringAt(value.generatedAt, "$.generatedAt");
   isoDateTimeSchema.parse(generatedAt);
   const entries = arrayAt(value.entries, "$.entries").map((entry, index) => {
     const path = `$.entries[${index}]`;
     const item = recordAt(entry, path);
+    allowedKeys(item, [
+      "exerciseKey", "exerciseDefinitionVersion", "minimumAppVersion",
+      "rollbackExerciseDefinitionVersion", "contentUrl", "sha256", "signature",
+    ], path);
     const minimumAppVersion = stringAt(item.minimumAppVersion, `${path}.minimumAppVersion`);
     semanticVersionSchema.parse(minimumAppVersion);
     const sha256 = stringAt(item.sha256, `${path}.sha256`);
@@ -489,8 +717,8 @@ function parseManifest(input: unknown): ExerciseDefinitionManifest {
       `${path}.rollbackExerciseDefinitionVersion`,
     );
     const contentUrl = stringAt(item.contentUrl, `${path}.contentUrl`);
-    if (!contentUrl.startsWith("https://")) {
-      fail(`${path}.contentUrl`, "must use HTTPS");
+    if (!/^https:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?(?:\/[^\s]*)?$/.test(contentUrl)) {
+      fail(`${path}.contentUrl`, "must be a valid HTTPS URL without whitespace");
     }
     return {
       exerciseKey: stringAt(item.exerciseKey, `${path}.exerciseKey`),
@@ -507,7 +735,10 @@ function parseManifest(input: unknown): ExerciseDefinitionManifest {
     "$.entries",
   );
   return {
-    schemaVersion: integerAt(value.schemaVersion, "$.schemaVersion", 1),
+    schemaVersion:
+      integerAt(value.schemaVersion, "$.schemaVersion", 1) === 1
+        ? 1
+        : fail("$.schemaVersion", "only manifest schema version 1 is supported"),
     catalogVersion: stringAt(value.catalogVersion, "$.catalogVersion"),
     generatedAt,
     keyId: stringAt(value.keyId, "$.keyId"),
@@ -525,6 +756,14 @@ function assertRollbackVersion(
   }
   if (version > 1 && (rollbackVersion === null || rollbackVersion >= version)) {
     fail(path, "must reference an earlier version");
+  }
+}
+
+function allowedKeys(value: UnknownRecord, allowed: readonly string[], path: string): void {
+  const allowedSet = new Set(allowed);
+  const unknown = Object.keys(value).find((key) => !allowedSet.has(key));
+  if (unknown !== undefined) {
+    fail(`${path}.${unknown}`, "is not supported by this schema version");
   }
 }
 

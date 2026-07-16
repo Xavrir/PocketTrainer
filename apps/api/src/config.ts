@@ -15,6 +15,7 @@ const environmentSchema = z
     DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(50).default(10),
     REQUEST_BODY_LIMIT: z.string().default('1mb'),
     CORS_ORIGINS: z.string().default(''),
+    OUTBOX_POLL_MS: z.coerce.number().int().min(0).max(300_000).default(30_000),
     SUPABASE_URL: z.string().url().optional(),
     SUPABASE_JWT_ISSUER: z.string().url().optional(),
     SUPABASE_JWT_AUDIENCE: z.string().min(1).default('authenticated'),
@@ -50,6 +51,20 @@ const environmentSchema = z
         path: ['SUPABASE_URL'],
         message: 'SUPABASE_URL is required unless development authentication is enabled.',
       });
+    }
+    if (environment.SUPABASE_URL) {
+      const supabaseUrl = new URL(environment.SUPABASE_URL);
+      if (supabaseUrl.protocol !== 'https:' && environment.NODE_ENV === 'production') {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ['SUPABASE_URL'], message: 'Production Supabase Auth must use HTTPS.' });
+      }
+      const issuer = environment.SUPABASE_JWT_ISSUER ?? `${environment.SUPABASE_URL.replace(/\/$/, '')}/auth/v1`;
+      const expectedIssuer = `${environment.SUPABASE_URL.replace(/\/$/, '')}/auth/v1`;
+      if (issuer !== expectedIssuer) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ['SUPABASE_JWT_ISSUER'], message: 'JWT issuer must be the configured Supabase Auth issuer.' });
+      }
+      if (environment.NODE_ENV === 'production' && !environment.SUPABASE_JWT_ISSUER) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ['SUPABASE_JWT_ISSUER'], message: 'Production must pin SUPABASE_JWT_ISSUER explicitly.' });
+      }
     }
   });
 

@@ -12,17 +12,20 @@ import { HealthController } from './controllers/health.controller';
 import { PlanController } from './controllers/plan.controller';
 import { ProfileController } from './controllers/profile.controller';
 import { ProgressController } from './controllers/progress.controller';
+import { PrivacyController } from './controllers/privacy.controller';
 import { SyncController } from './controllers/sync.controller';
 import { WorkoutController } from './controllers/workout.controller';
+import { OutboxProcessorService } from './outbox/outbox-processor.service';
 import { InMemoryPocketTrainerRepository } from './repositories/in-memory.repository';
 import { PocketTrainerRepository } from './repositories/pocket-trainer.repository';
 import { PostgresPocketTrainerRepository } from './repositories/postgres.repository';
 
 @Module({
-  controllers: [HealthController, BootstrapController, ProfileController, ConsentController, CatalogController, ProgressController, AssessmentController, PlanController, WorkoutController, SyncController],
+  controllers: [HealthController, BootstrapController, ProfileController, ConsentController, CatalogController, ProgressController, PrivacyController, AssessmentController, PlanController, WorkoutController, SyncController],
   providers: [
     { provide: APP_CONFIG, useFactory: loadConfig },
     SupabaseTokenVerifier,
+    OutboxProcessorService,
     {
       provide: PocketTrainerRepository,
       inject: [APP_CONFIG],
