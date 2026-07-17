@@ -4,6 +4,7 @@ import { colors, radius, spacing, type } from '../design/tokens';
 import { Icon, IconName } from '../components/Icon';
 
 export type ProfileConsentState = 'active' | 'inactive' | 'unknown';
+type ProfileExportState = 'idle' | 'loading' | 'success' | 'error';
 export type ProfileScreenProps = Readonly<{
   email?: string;
   name?: string;
@@ -13,27 +14,34 @@ export type ProfileScreenProps = Readonly<{
   limitations?: string;
   locale?: 'id' | 'en';
   consent?: ProfileConsentState;
+  onExportData?: () => Promise<void>;
   onSignOut?: () => Promise<void>;
   onDeleteAccount?: () => Promise<void>;
+  versionLabel?: string;
 }>;
 
 export function ProfileScreen({
   email,
-  name = 'Pengguna PocketTrainer',
-  memberLabel = 'Profil belum lengkap',
+  name,
+  memberLabel,
   schedule,
   equipment,
   limitations,
-  locale = 'id',
+  locale,
   consent = 'unknown',
+  onExportData,
   onSignOut,
   onDeleteAccount,
+  versionLabel,
 }: ProfileScreenProps) {
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState<string>();
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [deleteError, setDeleteError] = useState<string>();
-  const emptyValue = locale === 'en' ? 'Not set' : 'Belum diatur';
+  const [exportState, setExportState] = useState<ProfileExportState>('idle');
+  const displayName =
+    name?.trim() ||
+    (locale === 'en' ? 'PocketTrainer user' : 'Pengguna PocketTrainer');
   const consentValue =
     consent === 'active'
       ? locale === 'en'
@@ -46,30 +54,41 @@ export function ProfileScreen({
       : locale === 'en'
       ? 'Not confirmed'
       : 'Belum dikonfirmasi';
-  const groups = [
-    {
-      title: 'LATIHAN',
-      items: [
-        { icon: 'clock', label: 'Jadwal', value: schedule ?? emptyValue },
-        { icon: 'spark', label: 'Peralatan', value: equipment ?? emptyValue },
-        {
-          icon: 'shield',
-          label: 'Batas gerak',
-          value: limitations ?? emptyValue,
-        },
-      ],
-    },
-    {
-      title: 'PREFERENSI',
-      items: [
-        {
-          icon: 'person',
-          label: 'Bahasa',
-          value: locale === 'en' ? 'English' : 'Bahasa Indonesia',
-        },
-        { icon: 'bell', label: 'Pengingat', value: emptyValue },
-      ],
-    },
+  const trainingItems: ReadonlyArray<{
+    icon: IconName;
+    label: string;
+    value: string;
+  }> = [
+    schedule ? { icon: 'clock', label: 'Jadwal', value: schedule } : null,
+    equipment ? { icon: 'spark', label: 'Peralatan', value: equipment } : null,
+    limitations
+      ? { icon: 'shield', label: 'Batas gerak', value: limitations }
+      : null,
+  ].filter(
+    (item): item is { icon: IconName; label: string; value: string } =>
+      item !== null,
+  );
+  const groups: ReadonlyArray<{
+    title: string;
+    items: ReadonlyArray<{ icon: IconName; label: string; value: string }>;
+  }> = [
+    ...(trainingItems.length
+      ? [{ title: 'LATIHAN', items: trainingItems }]
+      : []),
+    ...(locale
+      ? [
+          {
+            title: 'PREFERENSI',
+            items: [
+              {
+                icon: 'person' as const,
+                label: 'Bahasa',
+                value: locale === 'en' ? 'English' : 'Bahasa Indonesia',
+              },
+            ],
+          },
+        ]
+      : []),
     {
       title: 'DATA & PRIVASI',
       items: [
@@ -79,11 +98,10 @@ export function ProfileScreen({
           value: locale === 'en' ? 'On device only' : 'Hanya di perangkat',
         },
         { icon: 'shield', label: 'Persetujuan', value: consentValue },
-        { icon: 'chart', label: 'Ekspor data', value: 'JSON' },
       ],
     },
-  ] as const;
-  const initials = name
+  ];
+  const initials = displayName
     .split(/\s+/)
     .map(part => part[0])
     .join('')
@@ -101,10 +119,10 @@ export function ProfileScreen({
         </View>
         <View style={styles.nameBlock}>
           <Text style={styles.eyebrow}>PROFIL</Text>
-          <Text style={styles.name}>{name}</Text>
-          <Text style={styles.member}>
-            {email ?? memberLabel}
-          </Text>
+          <Text style={styles.name}>{displayName}</Text>
+          {email || memberLabel ? (
+            <Text style={styles.member}>{email ?? memberLabel}</Text>
+          ) : null}
         </View>
       </View>
       <View style={styles.privacyPromise}>
@@ -121,100 +139,150 @@ export function ProfileScreen({
           <Text style={styles.groupTitle}>{group.title}</Text>
           <View style={styles.card}>
             {group.items.map((item, index) => (
-              <Pressable
-                accessibilityRole="button"
+              <View
                 key={item.label}
-                style={({ pressed }) => [
-                  styles.row,
-                  index > 0 && styles.rowBorder,
-                  pressed && styles.pressed,
-                ]}
+                style={[styles.row, index > 0 && styles.rowBorder]}
               >
                 <View style={styles.iconBox}>
-                  <Icon
-                    color={colors.secondary}
-                    name={item.icon as IconName}
-                    size={21}
-                  />
+                  <Icon color={colors.secondary} name={item.icon} size={21} />
                 </View>
                 <View style={styles.rowCopy}>
                   <Text style={styles.rowLabel}>{item.label}</Text>
                   <Text style={styles.rowValue}>{item.value}</Text>
                 </View>
-                <Icon color={colors.muted} name="chevron" size={19} />
-              </Pressable>
+              </View>
             ))}
           </View>
         </View>
       ))}
-      <Pressable
-        accessibilityRole="button"
-        disabled={!onSignOut || signingOut}
-        onPress={async () => {
-          if (!onSignOut) return;
-          setSigningOut(true);
-          setSignOutError(undefined);
-          try {
-            await onSignOut();
-          } catch {
-            setSignOutError(
-              'Belum bisa keluar. Periksa koneksi lalu coba lagi.',
-            );
-          } finally {
-            setSigningOut(false);
-          }
-        }}
-        style={[
-          styles.signOut,
-          (!onSignOut || signingOut) && styles.signOutDisabled,
-        ]}
-      >
-        <Text style={styles.signOutText}>
-          {signingOut ? 'Mengeluarkan…' : 'Keluar dari akun'}
-        </Text>
-      </Pressable>
-      {signOutError ? (
-        <Text accessibilityLiveRegion="polite" style={styles.signOutError}>
-          {signOutError}
-        </Text>
+      {onExportData ? (
+        <View style={styles.group}>
+          <Text style={styles.groupTitle}>EKSPOR PRIVASI</Text>
+          <Pressable
+            accessibilityLabel="Ekspor data sebagai JSON"
+            accessibilityRole="button"
+            accessibilityState={{
+              busy: exportState === 'loading',
+              disabled: exportState === 'loading',
+            }}
+            disabled={exportState === 'loading'}
+            onPress={async () => {
+              setExportState('loading');
+              try {
+                await onExportData();
+                setExportState('success');
+              } catch {
+                setExportState('error');
+              }
+            }}
+            style={({ pressed }) => [
+              styles.exportRow,
+              pressed && styles.pressed,
+            ]}
+          >
+            <View style={styles.iconBox}>
+              <Icon color={colors.mint} name="chart" size={21} />
+            </View>
+            <View style={styles.rowCopy}>
+              <Text style={styles.rowLabel}>Ekspor data</Text>
+              <Text style={styles.rowValue}>
+                {exportState === 'loading'
+                  ? 'Menyiapkan JSON…'
+                  : exportState === 'success'
+                  ? 'Diserahkan ke dialog berbagi'
+                  : exportState === 'error'
+                  ? 'Gagal · ketuk untuk mencoba lagi'
+                  : 'JSON melalui dialog berbagi Android'}
+              </Text>
+            </View>
+            {exportState === 'loading' ? (
+              <Text style={styles.exportStatus}>MEMUAT</Text>
+            ) : (
+              <Text style={styles.exportAction}>
+                {exportState === 'error' ? 'COBA LAGI' : 'EKSPOR'}
+              </Text>
+            )}
+          </Pressable>
+          {exportState === 'success' ? (
+            <Text accessibilityLiveRegion="polite" style={styles.exportSuccess}>
+              Data berhasil diserahkan ke dialog berbagi Android.
+            </Text>
+          ) : exportState === 'error' ? (
+            <Text accessibilityLiveRegion="polite" style={styles.exportError}>
+              Ekspor gagal. Periksa koneksi lalu coba lagi.
+            </Text>
+          ) : null}
+        </View>
       ) : null}
-      <Pressable
-        accessibilityLabel="Hapus akun dan data"
-        accessibilityRole="button"
-        accessibilityState={{
-          busy: deletingAccount,
-          disabled: !onDeleteAccount || deletingAccount,
-        }}
-        disabled={!onDeleteAccount || deletingAccount}
-        onPress={async () => {
-          if (!onDeleteAccount) return;
-          setDeletingAccount(true);
-          setDeleteError(undefined);
-          try {
-            await onDeleteAccount();
-          } catch {
-            setDeleteError(
-              'Belum bisa menghapus akun. Coba lagi atau hubungi dukungan.',
-            );
-          } finally {
-            setDeletingAccount(false);
-          }
-        }}
-        style={[
-          styles.delete,
-          (!onDeleteAccount || deletingAccount) && styles.deleteDisabled,
-        ]}
-      >
-        <Text style={styles.deleteText}>
-          {deletingAccount ? 'Menghapus…' : 'Hapus akun & data'}
-        </Text>
-      </Pressable>
-      {deleteError ? (
-        <Text accessibilityLiveRegion="polite" style={styles.deleteError}>
-          {deleteError}
-        </Text>
+      {onSignOut ? (
+        <>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ busy: signingOut, disabled: signingOut }}
+            disabled={signingOut}
+            onPress={async () => {
+              setSigningOut(true);
+              setSignOutError(undefined);
+              try {
+                await onSignOut();
+              } catch {
+                setSignOutError(
+                  'Belum bisa keluar. Periksa koneksi lalu coba lagi.',
+                );
+              } finally {
+                setSigningOut(false);
+              }
+            }}
+            style={[styles.signOut, signingOut && styles.signOutDisabled]}
+          >
+            <Text style={styles.signOutText}>
+              {signingOut ? 'Mengeluarkan…' : 'Keluar dari akun'}
+            </Text>
+          </Pressable>
+          {signOutError ? (
+            <Text accessibilityLiveRegion="polite" style={styles.signOutError}>
+              {signOutError}
+            </Text>
+          ) : null}
+        </>
       ) : null}
-      <Text style={styles.version}>PocketTrainer beta · v0.3.0</Text>
+      {onDeleteAccount ? (
+        <>
+          <Pressable
+            accessibilityLabel="Hapus akun dan data"
+            accessibilityRole="button"
+            accessibilityState={{
+              busy: deletingAccount,
+              disabled: deletingAccount,
+            }}
+            disabled={deletingAccount}
+            onPress={async () => {
+              setDeletingAccount(true);
+              setDeleteError(undefined);
+              try {
+                await onDeleteAccount();
+              } catch {
+                setDeleteError(
+                  'Belum bisa menghapus akun. Coba lagi atau hubungi dukungan.',
+                );
+              } finally {
+                setDeletingAccount(false);
+              }
+            }}
+            style={[styles.delete, deletingAccount && styles.deleteDisabled]}
+          >
+            <Text style={styles.deleteText}>
+              {deletingAccount ? 'Menghapus…' : 'Hapus akun & data'}
+            </Text>
+          </Pressable>
+          {deleteError ? (
+            <Text accessibilityLiveRegion="polite" style={styles.deleteError}>
+              {deleteError}
+            </Text>
+          ) : null}
+        </>
+      ) : null}
+      {versionLabel ? <Text style={styles.version}>{versionLabel}</Text> : null}
     </ScrollView>
   );
 }
@@ -283,6 +351,37 @@ const styles = StyleSheet.create({
   rowCopy: { flex: 1 },
   rowLabel: { ...type.card, color: colors.text, fontSize: 14 },
   rowValue: { ...type.micro, color: colors.secondary, marginTop: 2 },
+  exportRow: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    minHeight: 72,
+    paddingHorizontal: spacing.md,
+  },
+  exportAction: {
+    ...type.micro,
+    color: colors.mint,
+    letterSpacing: 0.7,
+  },
+  exportStatus: {
+    ...type.micro,
+    color: colors.secondary,
+    letterSpacing: 0.7,
+  },
+  exportSuccess: {
+    ...type.micro,
+    color: colors.mint,
+    marginTop: spacing.xs,
+  },
+  exportError: {
+    ...type.micro,
+    color: colors.danger,
+    marginTop: spacing.xs,
+  },
   signOut: {
     alignItems: 'center',
     borderColor: colors.border,

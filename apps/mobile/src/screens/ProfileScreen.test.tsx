@@ -37,6 +37,87 @@ describe('ProfileScreen', () => {
     );
   });
 
+  it('does not render unavailable settings or inert actions', async () => {
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    await ReactTestRenderer.act(() => {
+      renderer = ReactTestRenderer.create(<ProfileScreen />);
+    });
+
+    expect(textValues(renderer)).not.toContain('Pengingat');
+    expect(textValues(renderer)).not.toContain('Ekspor data');
+    expect(textValues(renderer)).not.toContain('Keluar dari akun');
+    expect(textValues(renderer)).not.toContain('Hapus akun & data');
+    expect(
+      renderer.root.findAll(node => node.props.name === 'chevron'),
+    ).toHaveLength(0);
+  });
+
+  it('shows export loading and successful Android share handoff states', async () => {
+    let resolveExport!: () => void;
+    const onExportData = jest.fn(
+      () =>
+        new Promise<void>(resolve => {
+          resolveExport = resolve;
+        }),
+    );
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    await ReactTestRenderer.act(() => {
+      renderer = ReactTestRenderer.create(
+        <ProfileScreen onExportData={onExportData} />,
+      );
+    });
+
+    const exportButton = renderer.root.find(
+      node => node.props.accessibilityLabel === 'Ekspor data sebagai JSON',
+    );
+    let press!: Promise<void>;
+    ReactTestRenderer.act(() => {
+      press = exportButton.props.onPress();
+    });
+
+    expect(textValues(renderer)).toContain('Menyiapkan JSON…');
+    expect(exportButton.props.accessibilityState).toEqual({
+      busy: true,
+      disabled: true,
+    });
+
+    await ReactTestRenderer.act(async () => {
+      resolveExport();
+      await press;
+    });
+
+    expect(onExportData).toHaveBeenCalledTimes(1);
+    expect(textValues(renderer)).toContain(
+      'Data berhasil diserahkan ke dialog berbagi Android.',
+    );
+  });
+
+  it('reports export failure and keeps retry available', async () => {
+    const onExportData = jest.fn().mockRejectedValue(new Error('offline'));
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    await ReactTestRenderer.act(() => {
+      renderer = ReactTestRenderer.create(
+        <ProfileScreen onExportData={onExportData} />,
+      );
+    });
+
+    await ReactTestRenderer.act(async () => {
+      await renderer.root
+        .find(
+          node => node.props.accessibilityLabel === 'Ekspor data sebagai JSON',
+        )
+        .props.onPress();
+    });
+
+    expect(textValues(renderer)).toContain(
+      'Ekspor gagal. Periksa koneksi lalu coba lagi.',
+    );
+    expect(textValues(renderer)).toContain('COBA LAGI');
+  });
+
   it('reports delete failures and exposes a pending state', async () => {
     let rejectDelete!: (error: Error) => void;
     const onDeleteAccount = jest.fn(

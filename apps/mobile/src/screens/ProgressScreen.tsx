@@ -60,10 +60,10 @@ export function ProgressScreen({
   onRetry,
   progress,
 }: {
-  error?: string;
+  error?: string | null;
   loading?: boolean;
   onRetry?: () => void;
-  progress?: MobileProgress;
+  progress?: MobileProgress | null;
 }) {
   const { width } = useWindowDimensions();
   const narrow = width < 380;
@@ -79,12 +79,16 @@ export function ProgressScreen({
     return (
       <View style={styles.centered}>
         <Icon color={colors.amber} name="shield" size={30} />
-        <Text style={styles.emptyTitle}>Progres belum tersedia.</Text>
+        <Text style={styles.emptyTitle}>
+          {error ? 'Progres belum bisa dimuat.' : 'Progres belum tersedia.'}
+        </Text>
         <Text style={styles.emptyBody}>
-          {error ?? 'Masuk dan hubungkan API untuk melihat data server.'}
+          {error ??
+            'Selesaikan lesson server pertamamu untuk memulai catatan progres.'}
         </Text>
         {onRetry ? (
           <Pressable
+            accessibilityLabel="Coba muat ulang progres"
             accessibilityRole="button"
             onPress={onRetry}
             style={styles.retry}
@@ -106,12 +110,41 @@ export function ProgressScreen({
     0,
     progress.xp.nextLevelXp - progress.xp.currentLevelXp,
   );
+  const scoredMastery = progress.mastery.filter(
+    item => item.exerciseKey === 'body_squat',
+  );
   return (
     <ScrollView
       style={styles.screen}
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
     >
+      {loading ? (
+        <View accessibilityLiveRegion="polite" style={styles.statusBanner}>
+          <ActivityIndicator color={colors.coral} size="small" />
+          <Text style={styles.statusText}>Menyegarkan progres server…</Text>
+        </View>
+      ) : error ? (
+        <View accessibilityLiveRegion="polite" style={styles.errorBanner}>
+          <View style={styles.errorCopy}>
+            <Text style={styles.errorTitle}>Penyegaran gagal.</Text>
+            <Text style={styles.errorBody}>{error}</Text>
+          </View>
+          {onRetry ? (
+            <Pressable
+              accessibilityLabel="Coba muat ulang progres"
+              accessibilityRole="button"
+              onPress={onRetry}
+              style={({ pressed }) => [
+                styles.inlineRetry,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.inlineRetryText}>Coba lagi</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
       <View style={styles.header}>
         <View style={styles.headingCopy}>
           <Text style={styles.eyebrow}>MOVEMENT PASSPORT</Text>
@@ -173,11 +206,11 @@ export function ProgressScreen({
         </View>
       </View>
       <View style={styles.sectionRow}>
-        <Text style={styles.section}>Penguasaan gerak</Text>
-        <Text style={styles.sectionMeta}>Skor terbaik valid</Text>
+        <Text style={styles.section}>Penguasaan squat</Text>
+        <Text style={styles.sectionMeta}>Skor postur yang didukung</Text>
       </View>
       <View style={styles.masteryGrid}>
-        {progress.mastery.map(item => {
+        {scoredMastery.map(item => {
           const presentation = masteryPresentation(item);
           return (
             <View
@@ -220,9 +253,9 @@ export function ProgressScreen({
             </View>
           );
         })}
-        {progress.mastery.length === 0 ? (
+        {scoredMastery.length === 0 ? (
           <Text style={styles.noMastery}>
-            Belum ada sesi dengan pelacakan yang memenuhi syarat skor.
+            Belum ada sesi squat dengan pelacakan yang memenuhi syarat skor.
           </Text>
         ) : null}
       </View>
@@ -240,7 +273,6 @@ export function ProgressScreen({
               : 'Selesaikan lesson valid pertamamu untuk memulai.'}
           </Text>
         </View>
-        <Icon color={colors.muted} name="chevron" />
       </View>
     </ScrollView>
   );
@@ -266,12 +298,51 @@ const styles = StyleSheet.create({
   retry: {
     backgroundColor: colors.coral,
     borderRadius: radius.control,
+    justifyContent: 'center',
     marginTop: spacing.lg,
+    minHeight: 48,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
   },
   retryText: { ...type.card, color: colors.canvas },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl },
+  statusBanner: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+    minHeight: 48,
+    paddingHorizontal: spacing.md,
+  },
+  statusText: { ...type.support, color: colors.secondary, flex: 1 },
+  errorBanner: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.amber,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+    padding: spacing.sm,
+  },
+  errorCopy: { flex: 1 },
+  errorTitle: { ...type.support, color: colors.text, fontWeight: '700' },
+  errorBody: { ...type.micro, color: colors.secondary, marginTop: 2 },
+  inlineRetry: {
+    alignItems: 'center',
+    borderColor: colors.border,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 48,
+    paddingHorizontal: spacing.sm,
+  },
+  inlineRetryText: { ...type.support, color: colors.text, fontWeight: '700' },
+  pressed: { backgroundColor: colors.raised },
   header: {
     alignItems: 'flex-start',
     flexDirection: 'row',
