@@ -6,9 +6,13 @@ import { PostgresNutritionRepository } from './postgres-nutrition.repository';
 
 const ownerUrl = process.env.TEST_DATABASE_URL;
 const runtimeUrl = process.env.TEST_DATABASE_RUNTIME_URL;
-const databaseDescribe = ownerUrl && runtimeUrl ? describe : describe.skip;
 
-databaseDescribe('PostgresNutritionRepository integration', () => {
+if (!ownerUrl || !runtimeUrl) {
+  describe.skip('PostgresNutritionRepository integration', () => {
+    it('requires owner and runtime database URLs', () => {});
+  });
+} else {
+describe('PostgresNutritionRepository integration', () => {
   const userA = randomUUID();
   const userB = randomUUID();
   const globalFoodId = randomUUID();
@@ -99,3 +103,4 @@ databaseDescribe('PostgresNutritionRepository integration', () => {
     }
   });
 });
+}
