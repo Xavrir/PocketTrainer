@@ -81,12 +81,14 @@ export function AuthScreen() {
         showResult(result.error);
         return;
       }
-      if (result.emailOtpSent) {
+      if (result.emailOtpRequested) {
         setEmail(normalizedEmail);
         setOtp('');
         setOtpRequested(true);
         setIsError(false);
-        setMessage('Kode OTP 6 digit sudah dikirim ke emailmu.');
+        setMessage(
+          'Permintaan kode diterima. Periksa emailmu untuk OTP 6 digit.',
+        );
       }
     } finally {
       setBusy(undefined);
@@ -241,8 +243,8 @@ export function AuthScreen() {
             </Pressable>
           ) : null}
           <Text style={styles.emailHint}>
-            Supabase akan mengirim kode sekali pakai. Masukkan 6 digit kode dari
-            email untuk melanjutkan.
+            Setelah meminta kode, masukkan OTP 6 digit dari email. Jika kode
+            belum muncul, coba kirim ulang atau gunakan Google.
           </Text>
         </View>
         <View style={styles.privacy}>

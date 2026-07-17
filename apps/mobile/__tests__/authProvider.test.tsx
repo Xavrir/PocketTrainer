@@ -12,7 +12,6 @@ import {
 const mockGetSession = jest.fn();
 const mockOnAuthStateChange = jest.fn();
 const mockExchangeCodeForSession = jest.fn();
-const mockSetSession = jest.fn();
 const mockSignInWithOAuth = jest.fn();
 const mockSignInWithOtp = jest.fn();
 const mockVerifyOtp = jest.fn();
@@ -36,7 +35,6 @@ jest.mock('../src/auth/supabase', () => ({
       getSession: mockGetSession,
       exchangeCodeForSession: mockExchangeCodeForSession,
       onAuthStateChange: mockOnAuthStateChange,
-      setSession: mockSetSession,
       signInWithOAuth: mockSignInWithOAuth,
       signInWithOtp: mockSignInWithOtp,
       verifyOtp: mockVerifyOtp,
@@ -69,7 +67,6 @@ describe('AuthProvider', () => {
     mockUrlListener = null;
     mockGetSession.mockReset();
     mockExchangeCodeForSession.mockReset();
-    mockSetSession.mockReset();
     mockSignInWithOAuth.mockReset();
     mockSignInWithOtp.mockReset();
     mockVerifyOtp.mockReset();
@@ -186,7 +183,7 @@ describe('AuthProvider', () => {
     await ReactTestRenderer.act(() => renderer.unmount());
   });
 
-  it('handles a warm email-link callback only once', async () => {
+  it('handles a warm OAuth callback only once', async () => {
     mockGetSession.mockResolvedValue({ data: { session: null }, error: null });
     mockExchangeCodeForSession.mockResolvedValue({
       data: { session: { access_token: 'email-link-token' } },
@@ -212,6 +209,77 @@ describe('AuthProvider', () => {
 
     expect(mockExchangeCodeForSession).toHaveBeenCalledTimes(1);
     expect(latestAuth.session?.access_token).toBe('email-link-token');
+    await ReactTestRenderer.act(() => renderer.unmount());
+  });
+
+  it('surfaces a cancelled OAuth callback truthfully', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: null }, error: null });
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <AuthProvider>
+          <AuthProbe />
+        </AuthProvider>,
+      );
+    });
+
+    await ReactTestRenderer.act(async () => {
+      mockUrlListener?.({
+        url: 'pockettrainer://auth/callback?error=access_denied&error_description=Cancelled',
+      });
+      await Promise.resolve();
+    });
+
+    expect(latestAuth.callbackError).toBe('Login dibatalkan.');
+    await ReactTestRenderer.act(() => renderer.unmount());
+  });
+
+  it('fails closed when a PKCE exchange returns no session', async () => {
+    jest
+      .mocked(Linking.getInitialURL)
+      .mockResolvedValue('pockettrainer://auth/callback?code=missing-session');
+    mockExchangeCodeForSession.mockResolvedValue({
+      data: { session: null },
+      error: null,
+    });
+    mockGetSession.mockResolvedValue({ data: { session: null }, error: null });
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <AuthProvider>
+          <AuthProbe />
+        </AuthProvider>,
+      );
+    });
+
+    expect(latestAuth.session).toBeNull();
+    expect(latestAuth.callbackError).toBe(
+      'Login selesai tetapi sesi tidak tersedia. Coba masuk lagi.',
+    );
+    await ReactTestRenderer.act(() => renderer.unmount());
+  });
+
+  it('surfaces persisted-session restoration failures', async () => {
+    mockGetSession.mockResolvedValue({
+      data: { session: null },
+      error: { message: 'storage unavailable' },
+    });
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <AuthProvider>
+          <AuthProbe />
+        </AuthProvider>,
+      );
+    });
+
+    expect(latestAuth.loading).toBe(false);
+    expect(latestAuth.session).toBeNull();
+    expect(latestAuth.callbackError).toBe(
+      'Sesi tersimpan tidak dapat dipulihkan. Silakan masuk lagi.',
+    );
     await ReactTestRenderer.act(() => renderer.unmount());
   });
 
@@ -251,7 +319,7 @@ describe('AuthProvider', () => {
     );
 
     await expect(latestAuth.sendEmailOtp('ayu@example.com')).resolves.toEqual({
-      emailOtpSent: true,
+      emailOtpRequested: true,
     });
     expect(mockSignInWithOtp).toHaveBeenCalledWith({
       email: 'ayu@example.com',
@@ -277,6 +345,32 @@ describe('AuthProvider', () => {
     });
     expect(latestAuth.session).toBeNull();
     expect(mockSignOut).toHaveBeenCalledWith({ scope: 'local' });
+    await ReactTestRenderer.act(() => renderer.unmount());
+  });
+
+  it('does not report OTP success when Supabase returns no session', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: null }, error: null });
+    mockVerifyOtp.mockResolvedValue({
+      data: { session: null },
+      error: null,
+    });
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <AuthProvider>
+          <AuthProbe />
+        </AuthProvider>,
+      );
+    });
+
+    let result;
+    await ReactTestRenderer.act(async () => {
+      result = await latestAuth.verifyEmailOtp('ayu@example.com', '123456');
+    });
+    expect(result).toEqual({
+      error: 'Kode diterima tetapi sesi login tidak tersedia. Minta kode baru.',
+    });
+    expect(latestAuth.session).toBeNull();
     await ReactTestRenderer.act(() => renderer.unmount());
   });
 

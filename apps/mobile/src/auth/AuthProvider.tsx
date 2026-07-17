@@ -15,7 +15,7 @@ import { AUTH_REDIRECT_URL, parseAuthCallbackUrl } from './authCallback';
 
 export type AuthResult = {
   error?: string;
-  emailOtpSent?: boolean;
+  emailOtpRequested?: boolean;
 };
 
 export type AuthContextValue = {
@@ -42,6 +42,16 @@ function messageFor(
     return 'Login Google belum diaktifkan pada proyek Supabase.';
   }
   if (
+    message.includes('access_denied') ||
+    message.includes('cancelled') ||
+    message.includes('canceled')
+  ) {
+    return 'Login dibatalkan.';
+  }
+  if (context === 'callback' && message.includes('session')) {
+    return 'Login selesai tetapi sesi tidak tersedia. Coba masuk lagi.';
+  }
+  if (
     context === 'callback' &&
     (message.includes('token has expired') ||
       message.includes('token is expired') ||
@@ -56,7 +66,6 @@ function messageFor(
   ) {
     return 'Kode OTP salah atau sudah kedaluwarsa. Minta kode baru.';
   }
-  if (message.includes('access_denied')) return 'Login dibatalkan.';
   if (message.includes('rate limit')) {
     return 'Terlalu banyak percobaan. Tunggu sebentar lalu coba lagi.';
   }
@@ -72,19 +81,11 @@ async function sessionFromCallback(url: string): Promise<Session | null> {
   const client = getSupabaseClient();
   if (!client) throw new Error('Supabase Auth belum dikonfigurasi.');
 
-  if (callback.kind === 'pkce') {
-    const { data, error } = await client.auth.exchangeCodeForSession(
-      callback.code,
-    );
-    if (error) throw error;
-    return data.session;
-  }
-
-  const { data, error } = await client.auth.setSession({
-    access_token: callback.accessToken,
-    refresh_token: callback.refreshToken,
-  });
+  const { data, error } = await client.auth.exchangeCodeForSession(
+    callback.code,
+  );
   if (error) throw error;
+  if (!data.session) throw new Error('Auth callback returned no session.');
   return data.session;
 }
 
@@ -189,6 +190,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             observedAuthStateChanges === stateChangesBeforeRestore
           ) {
             setSession(null);
+            setCallbackError(
+              'Sesi tersimpan tidak dapat dipulihkan. Silakan masuk lagi.',
+            );
           }
         }
       }
@@ -247,7 +251,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           },
         });
         if (error) return { error: messageFor(error) };
-        return { emailOtpSent: true };
+        return { emailOtpRequested: true };
       } catch {
         return {
           error: 'Tidak dapat terhubung. Periksa koneksi lalu coba lagi.',
@@ -269,7 +273,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           type: 'email',
         });
         if (error) return { error: messageFor(error, 'otp') };
-        if (data.session) setSession(data.session);
+        if (!data.session) {
+          return {
+            error:
+              'Kode diterima tetapi sesi login tidak tersedia. Minta kode baru.',
+          };
+        }
+        setSession(data.session);
         return {};
       } catch {
         return {

@@ -4,15 +4,14 @@ import {
 } from '../src/auth/authCallback';
 
 describe('parseAuthCallbackUrl', () => {
-  it('reads an implicit Supabase session from the callback fragment', () => {
+  it('rejects implicit session fragments outside the required PKCE flow', () => {
     expect(
       parseAuthCallbackUrl(
         `${AUTH_REDIRECT_URL}#access_token=access&refresh_token=refresh`,
       ),
     ).toEqual({
-      kind: 'session',
-      accessToken: 'access',
-      refreshToken: 'refresh',
+      kind: 'error',
+      message: 'Callback autentikasi harus menggunakan kode PKCE.',
     });
   });
 
@@ -44,7 +43,7 @@ describe('parseAuthCallbackUrl', () => {
       parseAuthCallbackUrl(`${AUTH_REDIRECT_URL}#access_token=access`),
     ).toEqual({
       kind: 'error',
-      message: 'Callback autentikasi tidak memiliki sesi yang lengkap.',
+      message: 'Callback autentikasi harus menggunakan kode PKCE.',
     });
     expect(parseAuthCallbackUrl(AUTH_REDIRECT_URL)).toEqual({
       kind: 'error',

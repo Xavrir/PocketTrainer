@@ -62,7 +62,8 @@ emit `{{ .Token }}` for the shipped secondary UX to remain a numeric OTP flow.
 
 Google OAuth uses PKCE and returns to `pockettrainer://auth/callback`; the
 email OTP is verified directly in the app. The app processes warm and cold-start
-Google callbacks, persists the resulting session in AsyncStorage, tracks
+Google callbacks, accepts only a PKCE authorization code (never raw session
+tokens from a deep link), persists the resulting session in AsyncStorage, tracks
 Supabase auth-state/token-refresh events, refreshes while the app is
 foregrounded, and signs out only the current device session from Profile. A
 release build without Supabase configuration fails closed on a branded
@@ -120,7 +121,12 @@ failures, and network failures are normalized into explicit client error codes.
 
 The automated mobile checks cover callback parsing, a clean-device cold-start
 callback, duplicate warm callbacks, persisted-session restoration races,
-foreground refresh behavior, and local logout. Before release, repeat the full
+missing-session fail-closed behavior, foreground refresh behavior, and local
+logout. A read-only check on 2026-07-17 confirmed that the hosted project is
+healthy and publicly reports both Google and Email providers enabled. Public
+settings cannot prove the redirect allow list or hosted email-template body, so
+those two items still require the operator/device checks below. Before release,
+repeat the full
 path on a clean physical Android device:
 
 - Tap Google first, complete provider login, and confirm the exact Android deep

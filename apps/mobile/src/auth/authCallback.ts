@@ -3,8 +3,7 @@ export const AUTH_REDIRECT_URL = 'pockettrainer://auth/callback';
 export type AuthCallback =
   | { kind: 'none' }
   | { kind: 'error'; message: string }
-  | { kind: 'pkce'; code: string }
-  | { kind: 'session'; accessToken: string; refreshToken: string };
+  | { kind: 'pkce'; code: string };
 
 function parametersFrom(url: URL): URLSearchParams {
   const parameters = new URLSearchParams(url.search);
@@ -34,16 +33,13 @@ export function parseAuthCallbackUrl(url: string): AuthCallback {
     const code = parameters.get('code');
     if (code) return { kind: 'pkce', code };
 
-    const accessToken = parameters.get('access_token');
-    const refreshToken = parameters.get('refresh_token');
-    if (accessToken && refreshToken) {
-      return { kind: 'session', accessToken, refreshToken };
-    }
-
-    if (accessToken || refreshToken) {
+    if (
+      parameters.has('access_token') ||
+      parameters.has('refresh_token')
+    ) {
       return {
         kind: 'error',
-        message: 'Callback autentikasi tidak memiliki sesi yang lengkap.',
+        message: 'Callback autentikasi harus menggunakan kode PKCE.',
       };
     }
 

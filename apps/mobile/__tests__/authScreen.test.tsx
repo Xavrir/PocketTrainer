@@ -39,7 +39,9 @@ function textInput(
 
 describe('AuthScreen email OTP flow', () => {
   it('requests a code, sanitizes six digits, and verifies the code', async () => {
-    const sendEmailOtp = jest.fn().mockResolvedValue({ emailOtpSent: true });
+    const sendEmailOtp = jest
+      .fn()
+      .mockResolvedValue({ emailOtpRequested: true });
     const verifyEmailOtp = jest.fn().mockResolvedValue({});
     mockedUseAuth.mockReturnValue(
       createAuthValue({ sendEmailOtp, verifyEmailOtp }),
@@ -75,7 +77,9 @@ describe('AuthScreen email OTP flow', () => {
   });
 
   it('does not verify until a complete six-digit code is entered', async () => {
-    const sendEmailOtp = jest.fn().mockResolvedValue({ emailOtpSent: true });
+    const sendEmailOtp = jest
+      .fn()
+      .mockResolvedValue({ emailOtpRequested: true });
     const verifyEmailOtp = jest.fn().mockResolvedValue({});
     mockedUseAuth.mockReturnValue(
       createAuthValue({ sendEmailOtp, verifyEmailOtp }),
