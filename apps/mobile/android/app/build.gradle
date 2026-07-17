@@ -151,7 +151,7 @@ dependencies {
 
     // Full-database encryption for the durable offline workout/sync queue.
     implementation(group: "net.zetetic", name: "sqlcipher-android", version: "4.17.0")
-    implementation(group: "androidx.sqlite", name: "sqlite", version: "2.6.2")
+    implementation(group: "androidx.sqlite", name: "sqlite", version: "2.7.0")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.7.0")
