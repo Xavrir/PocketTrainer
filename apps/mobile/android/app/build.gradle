@@ -60,7 +60,10 @@ react {
 /**
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
-def enableProguardInReleaseBuilds = false
+// Release artifacts are shipped through an optimized, device-specific APK/AAB.
+// R8 removes unused Java/Kotlin bytecode while consumer rules supplied by React
+// Native, MediaPipe, SQLCipher, and Keychain preserve their reflected APIs.
+def enableProguardInReleaseBuilds = true
 
 def releaseSigning = [
     storeFile: System.getenv("POCKETTRAINER_UPLOAD_STORE_FILE"),
@@ -128,6 +131,7 @@ android {
                 signingConfig signingConfigs.release
             }
             minifyEnabled enableProguardInReleaseBuilds
+            shrinkResources enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }

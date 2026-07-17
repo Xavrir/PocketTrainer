@@ -8,3 +8,8 @@
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
 # Add any project specific keep options here:
+
+# react-native-config reflects over the application's BuildConfig fields at
+# runtime. R8 cannot discover that access statically, so keep this one class and
+# its public configuration constants in optimized release builds.
+-keep class com.pockettrainer.BuildConfig { *; }
