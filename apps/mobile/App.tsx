@@ -70,6 +70,7 @@ import {
   type NutritionDiarySummary,
   type NutritionFacts,
 } from './src/nutrition/components/types';
+import { sharePrivacyExport } from './src/privacy/sharePrivacyExport';
 
 const APP_VERSION = '0.3.0-beta';
 const CONSENT_VERSION = '1.0.0';
@@ -814,6 +815,9 @@ function AppContent({
   const mainScreen =
     activeTab === 'home' ? (
       <HomeScreen
+        error={bootstrap.error?.message}
+        loading={bootstrap.loading}
+        onRetry={bootstrap.reload}
         onStartLesson={() => openLesson()}
         summary={homeSummary}
       />
@@ -871,6 +875,14 @@ function AppContent({
             : 'unknown'
         }
         onSignOut={auth.configured ? auth.signOut : undefined}
+        onExportData={
+          auth.configured
+            ? async () => {
+                const data = await nutritionApi.getPrivacyExport();
+                await sharePrivacyExport(data);
+              }
+            : undefined
+        }
         onDeleteAccount={
           auth.configured
             ? async () => {
@@ -883,6 +895,7 @@ function AppContent({
               }
             : undefined
         }
+        versionLabel="PocketTrainer beta · v0.3.0"
       />
     );
   let screen: React.ReactNode;
