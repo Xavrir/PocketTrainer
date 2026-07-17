@@ -149,16 +149,107 @@ describe('PocketTrainer MVP API', () => {
     await request(app.getHttpServer()).put('/v1/profile').set(auth).set('Idempotency-Key', key).send({ ...profile, displayName: 'Different' }).expect(409).expect(({ body }) => expect(body.error.code).toBe('IDEMPOTENCY_KEY_REUSED'));
   });
 
-  it('creates an assessment, awards XP once, and generates a plan', async () => {
-    const created = await request(app.getHttpServer()).post('/v1/assessments').set(auth).set('Idempotency-Key', randomUUID()).expect(201);
+  it('creates assessment v2, awards XP once, and generates a launchable foundation plan', async () => {
+    const scenarioAuth = isolatedAuth();
+    const session = await request(app.getHttpServer()).post('/v1/workout-sessions').set(scenarioAuth).set('Idempotency-Key', randomUUID())
+      .send({ lessonId: squatLessonId, startedAt: new Date().toISOString(), applicationVersion: '0.3.0' }).expect(201);
+    await request(app.getHttpServer()).put(`/v1/workout-sessions/${session.body.id}/results`).set(scenarioAuth).set('Idempotency-Key', randomUUID())
+      .send({ results: [squatResult({ totalReps: 3, validReps: 3, formScore: 88, durationMs: 30_000 })] }).expect(200);
+    await request(app.getHttpServer()).post(`/v1/workout-sessions/${session.body.id}/complete`).set(scenarioAuth).set('Idempotency-Key', randomUUID())
+      .send({ completedAt: new Date().toISOString(), perceivedDifficulty: 5, painReported: false }).expect(201)
+      .expect(({ body }) => expect(body).toMatchObject({ xpAwarded: 0, progressionSuppressed: true }));
+
+    const created = await request(app.getHttpServer()).post('/v1/assessments').set(scenarioAuth).set('Idempotency-Key', randomUUID()).expect(201);
+    expect(created.body.assessmentVersion).toBe('2.0.0');
     const key = randomUUID();
-    const result = { lowerBodyControl: 82, upperBodyControl: 75, balance: 80, mobility: 78, coreStability: 76, recommendedLevel: 'foundation', trackingEligible: true, restrictions: [] };
-    const first = await request(app.getHttpServer()).post(`/v1/assessments/${created.body.id}/complete`).set(auth).set('Idempotency-Key', key).send(result).expect(201);
-    expect(first.body.xpAwarded).toBe(75);
-    await request(app.getHttpServer()).post(`/v1/assessments/${created.body.id}/complete`).set(auth).set('Idempotency-Key', key).send(result).expect(201).expect('Idempotency-Replayed', 'true');
-    const progress = await request(app.getHttpServer()).get('/v1/progress').set(auth).expect(200);
+    const evidence = { squatSessionId: session.body.id, targetReps: 3, validReps: 3, durationMs: 30_000, confidenceEligible: true, formScore: 88, painReported: false };
+    const first = await request(app.getHttpServer()).post(`/v1/assessments/${created.body.id}/complete`).set(scenarioAuth).set('Idempotency-Key', key).send(evidence).expect(201);
+    expect(first.body).toMatchObject({
+      xpAwarded: 75,
+      progressionSuppressed: false,
+      assessment: { result: { version: 2, lowerBodyControl: 88, upperBodyControl: null, balance: null, mobility: null, coreStability: null, recommendedLevel: 'foundation' } },
+      currentPlan: { revision: 1 },
+    });
+    expect(first.body.currentPlan.lessonIds).toEqual([
+      squatLessonId,
+      '40000000-0000-4000-8000-000000000004',
+      '40000000-0000-4000-8000-000000000006',
+    ]);
+    await request(app.getHttpServer()).post(`/v1/assessments/${created.body.id}/complete`).set(scenarioAuth).set('Idempotency-Key', key).send(evidence).expect(201).expect('Idempotency-Replayed', 'true');
+    await request(app.getHttpServer()).post(`/v1/assessments/${created.body.id}/complete`).set(scenarioAuth).set('Idempotency-Key', randomUUID()).send(evidence).expect(409)
+      .expect(({ body }) => expect(body.error.code).toBe('ASSESSMENT_ALREADY_COMPLETED'));
+    const duplicateAssessment = await request(app.getHttpServer()).post('/v1/assessments').set(scenarioAuth).set('Idempotency-Key', randomUUID()).expect(201);
+    await request(app.getHttpServer()).post(`/v1/assessments/${duplicateAssessment.body.id}/complete`).set(scenarioAuth).set('Idempotency-Key', randomUUID()).send(evidence).expect(409)
+      .expect(({ body }) => expect(body.error.code).toBe('ASSESSMENT_EVIDENCE_REUSED'));
+    const progress = await request(app.getHttpServer()).get('/v1/progress').set(scenarioAuth).expect(200);
     expect(progress.body.xp.total).toBe(75);
-    await request(app.getHttpServer()).get('/v1/plans/current').set(auth).expect(200).expect(({ body }) => expect(body.lessonIds).toHaveLength(3));
+    expect(progress.body.mastery).toEqual([]);
+    await request(app.getHttpServer()).get('/v1/plans/current').set(scenarioAuth).expect(200).expect(({ body }) => expect(body.lessonIds).toHaveLength(3));
+
+    const secondAssessment = await request(app.getHttpServer()).post('/v1/assessments').set(scenarioAuth).set('Idempotency-Key', randomUUID()).expect(201);
+    await request(app.getHttpServer()).post(`/v1/assessments/${secondAssessment.body.id}/complete`).set(scenarioAuth).set('Idempotency-Key', randomUUID()).send(evidence).expect(409)
+      .expect(({ body }) => expect(body.error.code).toBe('ASSESSMENT_EVIDENCE_REUSED'));
+    await request(app.getHttpServer()).get('/v1/progress').set(scenarioAuth).expect(200)
+      .expect(({ body }) => expect(body.xp.total).toBe(75));
+  });
+
+  it('suppresses low-confidence assessment scoring, XP, mastery, and plan creation', async () => {
+    const scenarioAuth = isolatedAuth();
+    const session = await request(app.getHttpServer()).post('/v1/workout-sessions').set(scenarioAuth).set('Idempotency-Key', randomUUID())
+      .send({ lessonId: squatLessonId, startedAt: new Date().toISOString(), applicationVersion: '0.3.0' }).expect(201);
+    await request(app.getHttpServer()).put(`/v1/workout-sessions/${session.body.id}/results`).set(scenarioAuth).set('Idempotency-Key', randomUUID())
+      .send({ results: [squatResult({ totalReps: 3, validReps: 3, trackingEligible: false, formScore: undefined, durationMs: 30_000 })] }).expect(200);
+    await request(app.getHttpServer()).post(`/v1/workout-sessions/${session.body.id}/complete`).set(scenarioAuth).set('Idempotency-Key', randomUUID())
+      .send({ completedAt: new Date().toISOString(), perceivedDifficulty: 5, painReported: false }).expect(201);
+    const created = await request(app.getHttpServer()).post('/v1/assessments').set(scenarioAuth).set('Idempotency-Key', randomUUID()).expect(201);
+    const evidence = { squatSessionId: session.body.id, targetReps: 3, validReps: 3, durationMs: 30_000, confidenceEligible: false, formScore: null, painReported: false };
+    const completion = await request(app.getHttpServer()).post(`/v1/assessments/${created.body.id}/complete`).set(scenarioAuth).set('Idempotency-Key', randomUUID()).send(evidence).expect(201);
+    expect(completion.body).toMatchObject({
+      xpAwarded: 0,
+      currentPlan: null,
+      progressionSuppressed: true,
+      assessment: { result: { lowerBodyControl: null, recommendedLevel: null, progressionSuppressed: true } },
+    });
+    await request(app.getHttpServer()).get('/v1/progress').set(scenarioAuth).expect(200).expect(({ body }) => {
+      expect(body.xp.total).toBe(0);
+      expect(body.mastery).toEqual([]);
+    });
+    await request(app.getHttpServer()).get('/v1/plans/current').set(scenarioAuth).expect(404);
+  });
+
+  it('suppresses pain evidence without persisting a restriction or accepting a score', async () => {
+    const scenarioAuth = isolatedAuth();
+    const session = await request(app.getHttpServer()).post('/v1/workout-sessions').set(scenarioAuth).set('Idempotency-Key', randomUUID())
+      .send({ lessonId: squatLessonId, startedAt: new Date().toISOString(), applicationVersion: '0.3.0' }).expect(201);
+    await request(app.getHttpServer()).put(`/v1/workout-sessions/${session.body.id}/results`).set(scenarioAuth).set('Idempotency-Key', randomUUID())
+      .send({ results: [squatResult({ totalReps: 3, validReps: 3, formScore: 86, durationMs: 30_000 })] }).expect(200);
+    await request(app.getHttpServer()).post(`/v1/workout-sessions/${session.body.id}/complete`).set(scenarioAuth).set('Idempotency-Key', randomUUID())
+      .send({ completedAt: new Date().toISOString(), perceivedDifficulty: 7, painReported: true }).expect(201);
+    const created = await request(app.getHttpServer()).post('/v1/assessments').set(scenarioAuth).set('Idempotency-Key', randomUUID()).expect(201);
+    const evidence = { squatSessionId: session.body.id, targetReps: 3, validReps: 3, durationMs: 30_000, confidenceEligible: true, formScore: null, painReported: true };
+    await request(app.getHttpServer()).post(`/v1/assessments/${created.body.id}/complete`).set(scenarioAuth).set('Idempotency-Key', randomUUID()).send(evidence).expect(201)
+      .expect(({ body }) => expect(body).toMatchObject({ xpAwarded: 0, currentPlan: null, progressionSuppressed: true, assessment: { result: { lowerBodyControl: null } } }));
+    await request(app.getHttpServer()).get('/v1/progress').set(scenarioAuth).expect(200).expect(({ body }) => {
+      expect(body.xp.total).toBe(0);
+      expect(body.mastery).toEqual([]);
+    });
+  });
+
+  it('rejects client-selected levels and evidence from another user', async () => {
+    const ownerAuth = isolatedAuth();
+    const attackerAuth = isolatedAuth();
+    const session = await request(app.getHttpServer()).post('/v1/workout-sessions').set(ownerAuth).set('Idempotency-Key', randomUUID())
+      .send({ lessonId: squatLessonId, startedAt: new Date().toISOString(), applicationVersion: '0.3.0' }).expect(201);
+    await request(app.getHttpServer()).put(`/v1/workout-sessions/${session.body.id}/results`).set(ownerAuth).set('Idempotency-Key', randomUUID())
+      .send({ results: [squatResult({ totalReps: 3, validReps: 3, formScore: 88, durationMs: 30_000 })] }).expect(200);
+    await request(app.getHttpServer()).post(`/v1/workout-sessions/${session.body.id}/complete`).set(ownerAuth).set('Idempotency-Key', randomUUID())
+      .send({ completedAt: new Date().toISOString(), perceivedDifficulty: 5, painReported: false }).expect(201);
+    const created = await request(app.getHttpServer()).post('/v1/assessments').set(attackerAuth).set('Idempotency-Key', randomUUID()).expect(201);
+    const evidence = { squatSessionId: session.body.id, targetReps: 3, validReps: 3, durationMs: 30_000, confidenceEligible: true, formScore: 88, painReported: false };
+    await request(app.getHttpServer()).post(`/v1/assessments/${created.body.id}/complete`).set(attackerAuth).set('Idempotency-Key', randomUUID())
+      .send({ ...evidence, recommendedLevel: 'intermediate' }).expect(400);
+    await request(app.getHttpServer()).post(`/v1/assessments/${created.body.id}/complete`).set(attackerAuth).set('Idempotency-Key', randomUUID())
+      .send(evidence).expect(404).expect(({ body }) => expect(body.error.code).toBe('WORKOUT_NOT_FOUND'));
   });
 
   it('requires two high-quality sessions for mastery and never duplicates completion XP', async () => {
@@ -177,7 +268,7 @@ describe('PocketTrainer MVP API', () => {
     const second = await completeSession();
     expect(second.masteryChanges[0].mastered).toBe(true);
     const progress = await request(app.getHttpServer()).get('/v1/progress').set(auth).expect(200);
-    expect(progress.body.xp.total).toBe(235);
+    expect(progress.body.xp.total).toBe(160);
     expect(progress.body.mastery[0].qualifyingSessions).toBe(2);
   });
 

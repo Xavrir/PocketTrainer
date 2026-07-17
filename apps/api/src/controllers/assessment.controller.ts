@@ -4,7 +4,7 @@ import { CurrentUser } from '../common/current-user.decorator';
 import { sendIdempotent } from '../common/idempotency';
 import type { AuthenticatedUser } from '../common/request-context';
 import { parseBody, requireIdempotencyKey } from '../common/zod';
-import { assessmentResultSchema } from '../domain/domain.schemas';
+import { assessmentCompletionInputSchema } from '../domain/domain.schemas';
 import { PocketTrainerRepository } from '../repositories/pocket-trainer.repository';
 
 @Controller('v1/assessments')
@@ -14,6 +14,6 @@ export class AssessmentController {
     return sendIdempotent(response, await this.repository.createAssessment(user.id, requireIdempotencyKey(rawKey)));
   }
   @Post(':id/complete') async complete(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Headers('idempotency-key') rawKey: string | undefined, @Body() body: unknown, @Res({ passthrough: true }) response: Response) {
-    return sendIdempotent(response, await this.repository.completeAssessment(user.id, id, requireIdempotencyKey(rawKey), parseBody(assessmentResultSchema, body)));
+    return sendIdempotent(response, await this.repository.completeAssessment(user.id, id, requireIdempotencyKey(rawKey), parseBody(assessmentCompletionInputSchema, body)));
   }
 }

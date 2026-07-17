@@ -5,7 +5,7 @@ import { createCatalog } from '../catalog/catalog.seed';
 import { APP_CONFIG, type AppConfig } from '../config';
 import type {
   Assessment,
-  AssessmentResult,
+  AssessmentCompletionInput,
   Bootstrap,
   Consent,
   ExerciseResultInput,
@@ -20,6 +20,15 @@ import type {
   WorkoutPlan,
   WorkoutSession,
 } from '../domain/domain.types';
+import {
+  ASSESSMENT_VERSION_V2,
+  ASSESSMENT_XP_REWARD,
+  deriveAssessmentResultV2,
+  foundationPlanLessonIds,
+  isAssessmentEvidenceV2,
+  summarizeAssessmentWorkout,
+  validateAssessmentEvidence,
+} from '../domain/assessment-policy';
 import { calculateStreakCounts } from '../domain/progress-policy';
 import {
   accessContext,
@@ -218,32 +227,63 @@ export class InMemoryPocketTrainerRepository extends PocketTrainerRepository {
   async createAssessment(userId: string, key: string): Promise<IdempotencyResult<Assessment>> {
     const user = this.requireUser(userId);
     return this.idempotent(user, key, 'assessment.create', {}, () => {
-      const assessment: Assessment = { id: randomUUID(), status: 'in_progress', assessmentVersion: '1.0.0', startedAt: new Date().toISOString() };
+      const assessment: Assessment = { id: randomUUID(), status: 'in_progress', assessmentVersion: ASSESSMENT_VERSION_V2, startedAt: new Date().toISOString() };
       user.assessments.set(assessment.id, assessment);
       return assessment;
     });
   }
 
-  async completeAssessment(userId: string, assessmentId: string, key: string, result: AssessmentResult) {
+  async completeAssessment(userId: string, assessmentId: string, key: string, input: AssessmentCompletionInput) {
     const user = this.requireUser(userId);
-    return this.idempotent(user, key, 'assessment.complete', { assessmentId, result }, () => {
+    return this.idempotent(user, key, 'assessment.complete', { assessmentId, input }, () => {
       const assessment = user.assessments.get(assessmentId);
       if (!assessment) throw new ApiError('ASSESSMENT_NOT_FOUND', 'Assessment was not found.', HttpStatus.NOT_FOUND);
       if (assessment.status === 'completed') throw new ApiError('ASSESSMENT_ALREADY_COMPLETED', 'This assessment is already complete.', HttpStatus.CONFLICT);
+
+      if (assessment.assessmentVersion !== ASSESSMENT_VERSION_V2 || !isAssessmentEvidenceV2(input)) {
+        throw new ApiError('ASSESSMENT_VERSION_MISMATCH', 'The completion payload does not match this assessment version.', HttpStatus.UNPROCESSABLE_ENTITY, true);
+      }
+
+      const evidenceAlreadyUsed = [...user.assessments.values()].some((candidate) => candidate.id !== assessmentId
+        && candidate.result !== undefined
+        && 'version' in candidate.result
+        && candidate.result.evidence.squatSessionId === input.squatSessionId);
+      if (evidenceAlreadyUsed) {
+        throw new ApiError('ASSESSMENT_EVIDENCE_REUSED', 'This squat session has already been used for an assessment.', HttpStatus.CONFLICT);
+      }
+
+      const session = this.requireWorkout(user, input.squatSessionId);
+      if (session.status === 'in_progress') {
+        throw new ApiError('ASSESSMENT_WORKOUT_NOT_FINAL', 'Complete the squat session before completing the assessment.', HttpStatus.CONFLICT, true);
+      }
+      if ((session.status === 'stopped_for_safety') !== input.painReported) {
+        throw new ApiError('ASSESSMENT_EVIDENCE_MISMATCH', 'Assessment pain evidence does not match the server-backed squat session.', HttpStatus.UNPROCESSABLE_ENTITY, true);
+      }
+      if (session.results.length === 0) {
+        throw new ApiError('ASSESSMENT_EVIDENCE_REQUIRED', 'The squat session has no server-backed exercise results.', HttpStatus.UNPROCESSABLE_ENTITY, true);
+      }
+      const canonical = this.requireCanonicalWorkout(session.lessonId);
+      this.assertCanonicalResults(canonical, session.results);
+      const issue = validateAssessmentEvidence(input, summarizeAssessmentWorkout(canonical.exercise.exerciseKey, session.results));
+      if (issue) throw new ApiError(issue.code, issue.message, HttpStatus.UNPROCESSABLE_ENTITY, true);
+
+      const result = deriveAssessmentResultV2(input);
       const completed: Assessment = { ...assessment, status: 'completed', completedAt: new Date().toISOString(), result };
       user.assessments.set(assessmentId, completed);
-      user.xp.push({ points: 75, eventType: 'assessment', createdAt: completed.completedAt! });
-      for (const restriction of result.restrictions) {
-        const existing = user.mastery.get(restriction) ?? this.emptyMastery(restriction);
-        user.mastery.set(restriction, { ...existing, restricted: true, updatedAt: completed.completedAt! });
+
+      if (result.progressionSuppressed) {
+        return { assessment: completed, xpAwarded: 0, currentPlan: user.plan, progressionSuppressed: true };
       }
-      const firstLessons = this.catalog.tracks.map((track) => track.courses[0]!.units[0]!.lessons[0]!.id);
+
+      user.xp.push({ points: ASSESSMENT_XP_REWARD, eventType: 'assessment', createdAt: completed.completedAt! });
+      const lessonIds = foundationPlanLessonIds(this.catalog, accessContext(this.buildProgress(user), user.profile));
+      if (lessonIds.length === 0) throw new ApiError('ASSESSMENT_PLAN_UNAVAILABLE', 'No launchable foundation lessons are available.', HttpStatus.CONFLICT, true);
       const currentPlan: WorkoutPlan = {
-        id: randomUUID(), revision: 1, status: 'active', generatedAt: completed.completedAt!, lessonIds: firstLessons,
+        id: randomUUID(), revision: (user.plan?.revision ?? 0) + 1, status: 'active', generatedAt: completed.completedAt!, lessonIds,
         reason: { id: 'Dibuat dari hasil asesmen gerak Anda.', en: 'Generated from your movement assessment.' },
       };
       user.plan = currentPlan;
-      return { assessment: completed, xpAwarded: 75, currentPlan };
+      return { assessment: completed, xpAwarded: ASSESSMENT_XP_REWARD, currentPlan, progressionSuppressed: false };
     });
   }
 

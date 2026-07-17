@@ -134,4 +134,53 @@ describe('PostgreSQL workout safety without an external database', () => {
       expect(database.queries.some((sql) => sql.startsWith(`insert into ${table}`))).toBe(false);
     }
   });
+
+  it('completes low-confidence assessment v2 without XP, mastery, or a new plan', async () => {
+    const repository = createRepository();
+    const userId = randomUUID();
+    const assessmentId = randomUUID();
+    const sessionId = randomUUID();
+    const startedAt = new Date('2026-07-17T08:00:00.000Z');
+    const completedAt = new Date('2026-07-17T08:01:00.000Z');
+    const storedResult = {
+      version: 2,
+      evidence: { squatSessionId: sessionId, targetReps: 3 as const, validReps: 3, durationMs: 30_000, confidenceEligible: false, formScore: null, painReported: false },
+      lowerBodyControl: null,
+      upperBodyControl: null,
+      balance: null,
+      mobility: null,
+      coreStability: null,
+      recommendedLevel: null,
+      progressionSuppressed: true,
+    };
+
+    database.query.mockImplementation(async (text: string) => {
+      const sql = text.replace(/\s+/g, ' ').trim();
+      database.queries.push(sql);
+      if (sql.includes('from processed_client_events where')) return { rows: [], rowCount: 0 };
+      if (sql.startsWith('select id,status,assessment_version')) {
+        return { rows: [{ id: assessmentId, status: 'in_progress', assessment_version: '2.0.0', started_at: startedAt, completed_at: null, result: null }], rowCount: 1 };
+      }
+      if (sql.startsWith('select id,lesson_id,status,pain_reported from workout_sessions')) {
+        return { rows: [{ id: sessionId, lesson_id: squatLessonId, status: 'completed', pain_reported: false }], rowCount: 1 };
+      }
+      if (sql.includes('select er.* from exercise_results')) {
+        return { rows: [resultRow({ total_reps: 3, valid_reps: 3, duration_ms: 30_000 })], rowCount: 1 };
+      }
+      if (sql.startsWith('update assessment_sessions')) {
+        return { rows: [{ id: assessmentId, status: 'completed', assessment_version: '2.0.0', started_at: startedAt, completed_at: completedAt, result: storedResult }], rowCount: 1 };
+      }
+      if (sql.includes("from workout_plans where user_id=$1 and status='active'")) return { rows: [], rowCount: 0 };
+      return { rows: [], rowCount: 0 };
+    });
+
+    const completion = (await repository.completeAssessment(userId, assessmentId, randomUUID(), storedResult.evidence)).value;
+    expect(completion).toMatchObject({ xpAwarded: 0, currentPlan: null, progressionSuppressed: true });
+    expect(completion.assessment.result).toEqual(storedResult);
+    expect(database.queries).toContain('select pg_advisory_xact_lock(hashtextextended($1,0))');
+    expect(database.queries.some((sql) => sql.includes("result->'evidence'->>'squatSessionId'"))).toBe(true);
+    for (const table of ['xp_ledger', 'skill_mastery', 'workout_plans', 'unlock_events']) {
+      expect(database.queries.some((sql) => sql.startsWith(`insert into ${table}`))).toBe(false);
+    }
+  });
 });

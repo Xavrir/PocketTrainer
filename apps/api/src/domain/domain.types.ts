@@ -129,7 +129,7 @@ export type Assessment = {
   result?: AssessmentResult;
 };
 
-export type AssessmentResult = {
+export type AssessmentResultV1 = {
   lowerBodyControl: number;
   upperBodyControl: number;
   balance: number;
@@ -140,6 +140,31 @@ export type AssessmentResult = {
   restrictions: string[];
 };
 
+export type AssessmentEvidenceV2 = {
+  squatSessionId: string;
+  targetReps: 3;
+  validReps: number;
+  durationMs: number;
+  confidenceEligible: boolean;
+  formScore: number | null;
+  painReported: boolean;
+};
+
+export type AssessmentResultV2 = {
+  version: 2;
+  evidence: AssessmentEvidenceV2;
+  lowerBodyControl: number | null;
+  upperBodyControl: null;
+  balance: null;
+  mobility: null;
+  coreStability: null;
+  recommendedLevel: 'foundation' | null;
+  progressionSuppressed: boolean;
+};
+
+export type AssessmentResult = AssessmentResultV1 | AssessmentResultV2;
+export type AssessmentCompletionInput = AssessmentResultV1 | AssessmentEvidenceV2;
+
 export type WorkoutPlan = {
   id: string;
   revision: number;
@@ -147,6 +172,13 @@ export type WorkoutPlan = {
   generatedAt: string;
   reason: LocalizedText;
   lessonIds: string[];
+};
+
+export type AssessmentCompletionV2 = {
+  assessment: Assessment;
+  xpAwarded: number;
+  currentPlan: WorkoutPlan | null;
+  progressionSuppressed: boolean;
 };
 
 export type ExerciseResultInput = {

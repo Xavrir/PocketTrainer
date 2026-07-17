@@ -16,7 +16,7 @@ export const consentTypeSchema = z.enum(['privacy', 'camera_processing', 'fitnes
 export const consentSchema = z.object({ granted: z.boolean(), version: z.string().min(1).max(40) }).strict();
 
 const score = z.number().min(0).max(100);
-export const assessmentResultSchema = z.object({
+export const assessmentResultV1Schema = z.object({
   lowerBodyControl: score,
   upperBodyControl: score,
   balance: score,
@@ -26,6 +26,28 @@ export const assessmentResultSchema = z.object({
   trackingEligible: z.boolean(),
   restrictions: z.array(z.string().min(1).max(100)).max(30),
 }).strict();
+
+export const assessmentEvidenceV2Schema = z.object({
+  squatSessionId: z.string().uuid(),
+  targetReps: z.literal(3),
+  validReps: z.number().int().min(0).max(3),
+  durationMs: z.number().int().positive().max(600_000),
+  confidenceEligible: z.boolean(),
+  formScore: score.nullable(),
+  painReported: z.boolean(),
+}).strict().superRefine((value, context) => {
+  const scoreAllowed = value.confidenceEligible && !value.painReported;
+  if (scoreAllowed && value.formScore === null) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['formScore'], message: 'A form score is required for eligible, pain-free evidence.' });
+  }
+  if (!scoreAllowed && value.formScore !== null) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['formScore'], message: 'A form score must be null when confidence is ineligible or pain is reported.' });
+  }
+});
+
+export const assessmentCompletionInputSchema = z.union([assessmentEvidenceV2Schema, assessmentResultV1Schema]);
+/** @deprecated Use assessmentCompletionInputSchema for assessment completion payloads. */
+export const assessmentResultSchema = assessmentCompletionInputSchema;
 
 export const createWorkoutSchema = z.object({
   lessonId: z.string().uuid(),

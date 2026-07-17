@@ -6,6 +6,7 @@ import { createCatalog } from '../catalog/catalog.seed';
 import { APP_CONFIG, type AppConfig } from '../config';
 import type {
   Assessment,
+  AssessmentCompletionInput,
   AssessmentResult,
   Bootstrap,
   Catalog,
@@ -23,6 +24,16 @@ import type {
   WorkoutPlan,
   WorkoutSession,
 } from '../domain/domain.types';
+import {
+  ASSESSMENT_VERSION_V2,
+  ASSESSMENT_XP_REWARD,
+  deriveAssessmentResultV2,
+  foundationPlanLessonIds,
+  isAssessmentEvidenceV2,
+  summarizeAssessmentWorkout,
+  validateAssessmentEvidence,
+  v1ProgressionSuppressed,
+} from '../domain/assessment-policy';
 import { calculateStreakCounts } from '../domain/progress-policy';
 import {
   accessContext,
@@ -284,37 +295,98 @@ export class PostgresPocketTrainerRepository extends PocketTrainerRepository imp
   async createAssessment(userId: string, key: string): Promise<IdempotencyResult<Assessment>> {
     return this.idempotent(userId, key, 'assessment.create', {}, async (client) => {
       const result = await client.query(`insert into assessment_sessions (user_id, assessment_version, status)
-        values ($1,'1.0.0','in_progress') returning id, status, assessment_version, started_at`, [userId]);
+        values ($1,$2,'in_progress') returning id, status, assessment_version, started_at`, [userId, ASSESSMENT_VERSION_V2]);
       return this.mapAssessment(result.rows[0]!);
     });
   }
 
-  async completeAssessment(userId: string, assessmentId: string, key: string, input: AssessmentResult) {
+  async completeAssessment(userId: string, assessmentId: string, key: string, input: AssessmentCompletionInput) {
     return this.idempotent(userId, key, 'assessment.complete', { assessmentId, input }, async (client) => {
-      const result = await client.query(`update assessment_sessions set status='completed', completed_at=now(), result=$3
-        where id=$1 and user_id=$2 and status='in_progress'
-        returning id, status, assessment_version, started_at, completed_at, result`, [assessmentId, userId, JSON.stringify(input)]);
-      const row = result.rows[0];
-      if (!row) {
-        const existing = await client.query('select status from assessment_sessions where id=$1 and user_id=$2', [assessmentId, userId]);
-        throw new ApiError(existing.rows[0] ? 'ASSESSMENT_ALREADY_COMPLETED' : 'ASSESSMENT_NOT_FOUND', existing.rows[0] ? 'This assessment is already complete.' : 'Assessment was not found.', existing.rows[0] ? HttpStatus.CONFLICT : HttpStatus.NOT_FOUND);
+      await client.query('select pg_advisory_xact_lock(hashtextextended($1,0))', [`${userId}:assessment-completion`]);
+      const assessmentResult = await client.query(
+        'select id,status,assessment_version,started_at,completed_at,result from assessment_sessions where id=$1 and user_id=$2 for update',
+        [assessmentId, userId],
+      );
+      const existingAssessment = assessmentResult.rows[0];
+      if (!existingAssessment) throw new ApiError('ASSESSMENT_NOT_FOUND', 'Assessment was not found.', HttpStatus.NOT_FOUND);
+      if (existingAssessment.status !== 'in_progress') {
+        throw new ApiError('ASSESSMENT_ALREADY_COMPLETED', 'This assessment is already complete.', HttpStatus.CONFLICT);
       }
+
+      const assessmentVersion = String(existingAssessment.assessment_version);
+      let storedResult: AssessmentResult;
+      let progressionSuppressed: boolean;
+
+      if (assessmentVersion === ASSESSMENT_VERSION_V2) {
+        if (!isAssessmentEvidenceV2(input)) {
+          throw new ApiError('ASSESSMENT_VERSION_MISMATCH', 'The completion payload does not match this assessment version.', HttpStatus.UNPROCESSABLE_ENTITY, true);
+        }
+        const reusedEvidence = await client.query(`select id from assessment_sessions
+          where user_id=$1 and id<>$2 and status='completed' and assessment_version=$3
+            and result->'evidence'->>'squatSessionId'=$4 limit 1`,
+        [userId, assessmentId, ASSESSMENT_VERSION_V2, input.squatSessionId]);
+        if (reusedEvidence.rows[0]) {
+          throw new ApiError('ASSESSMENT_EVIDENCE_REUSED', 'This squat session has already been used for an assessment.', HttpStatus.CONFLICT);
+        }
+        const sessionResult = await client.query(
+          'select id,lesson_id,status,pain_reported from workout_sessions where id=$1 and user_id=$2 for update',
+          [input.squatSessionId, userId],
+        );
+        const session = sessionResult.rows[0];
+        if (!session) throw new ApiError('WORKOUT_NOT_FOUND', 'Workout was not found.', HttpStatus.NOT_FOUND);
+        if (session.status === 'in_progress') {
+          throw new ApiError('ASSESSMENT_WORKOUT_NOT_FINAL', 'Complete the squat session before completing the assessment.', HttpStatus.CONFLICT, true);
+        }
+        if (Boolean(session.pain_reported) !== input.painReported) {
+          throw new ApiError('ASSESSMENT_EVIDENCE_MISMATCH', 'Assessment pain evidence does not match the server-backed squat session.', HttpStatus.UNPROCESSABLE_ENTITY, true);
+        }
+        const exerciseResults = await client.query('select er.* from exercise_results er where er.workout_session_id=$1 order by er.set_number,er.created_at', [input.squatSessionId]);
+        if (exerciseResults.rowCount === 0) {
+          throw new ApiError('ASSESSMENT_EVIDENCE_REQUIRED', 'The squat session has no server-backed exercise results.', HttpStatus.UNPROCESSABLE_ENTITY, true);
+        }
+        const canonical = this.requireCanonicalWorkout(String(session.lesson_id));
+        const results = exerciseResults.rows.map((row) => this.mapExerciseResult(row));
+        this.assertCanonicalResults(canonical, results);
+        const issue = validateAssessmentEvidence(input, summarizeAssessmentWorkout(canonical.exercise.exerciseKey, results));
+        if (issue) throw new ApiError(issue.code, issue.message, HttpStatus.UNPROCESSABLE_ENTITY, true);
+        storedResult = deriveAssessmentResultV2(input);
+        progressionSuppressed = storedResult.progressionSuppressed;
+      } else if (assessmentVersion.startsWith('1.') && !isAssessmentEvidenceV2(input)) {
+        storedResult = input;
+        progressionSuppressed = v1ProgressionSuppressed(input);
+      } else {
+        throw new ApiError('ASSESSMENT_VERSION_MISMATCH', 'The completion payload does not match this assessment version.', HttpStatus.UNPROCESSABLE_ENTITY, true);
+      }
+
+      const updated = await client.query(`update assessment_sessions set status='completed',completed_at=now(),result=$3
+        where id=$1 and user_id=$2
+        returning id,status,assessment_version,started_at,completed_at,result`, [assessmentId, userId, JSON.stringify(storedResult)]);
+      const row = updated.rows[0]!;
       const completedAt = (row.completed_at as Date).toISOString();
-      const timezone = await this.userTimezone(client, userId);
-      await client.query(`insert into xp_ledger (user_id,event_type,event_id,points,idempotency_key,local_date)
-        values ($1,'ASSESSMENT_COMPLETED',$2,75,$3,$4) on conflict (user_id,idempotency_key) do nothing`, [userId, assessmentId, key, localDate(completedAt, timezone)]);
-      for (const restriction of input.restrictions) {
-        await client.query(`insert into skill_mastery (user_id,exercise_key,restricted)
-          values ($1,$2,true) on conflict (user_id,exercise_key) do update set restricted=true,updated_at=now()`, [userId, restriction]);
+      let xpAwarded = 0;
+      let currentPlan: WorkoutPlan | null = null;
+
+      if (!progressionSuppressed) {
+        const timezone = await this.userTimezone(client, userId);
+        await client.query(`insert into xp_ledger (user_id,event_type,event_id,points,idempotency_key,local_date)
+          values ($1,'ASSESSMENT_COMPLETED',$2,$3,$4,$5)`, [userId, assessmentId, ASSESSMENT_XP_REWARD, key, localDate(completedAt, timezone)]);
+        xpAwarded = ASSESSMENT_XP_REWARD;
+        const lessonIds = foundationPlanLessonIds(this.fallbackCatalog, await this.loadAccessContext(client, userId));
+        if (lessonIds.length === 0) throw new ApiError('ASSESSMENT_PLAN_UNAVAILABLE', 'No launchable foundation lessons are available.', HttpStatus.CONFLICT, true);
+        await client.query("update workout_plans set status='superseded',updated_at=now() where user_id=$1 and status='active'", [userId]);
+        const planResult = await client.query(`insert into workout_plans (user_id,revision,status,reason,lesson_ids,assessment_session_id)
+          select $1,coalesce(max(revision),0)+1,'active',$2,$3,$4 from workout_plans where user_id=$1
+          returning id,revision,status,generated_at,reason,lesson_ids`, [userId, JSON.stringify({ id: 'Dibuat dari hasil asesmen gerak Anda.', en: 'Generated from your movement assessment.' }), lessonIds, assessmentId]);
+        currentPlan = this.mapPlan(planResult.rows[0]!);
+      } else {
+        const planResult = await client.query(`select id,revision,status,generated_at,reason,lesson_ids from workout_plans
+          where user_id=$1 and status='active' order by revision desc limit 1`, [userId]);
+        currentPlan = planResult.rows[0] ? this.mapPlan(planResult.rows[0]) : null;
       }
-      const lessonIds = this.fallbackCatalog.tracks.map((track) => track.courses[0]!.units[0]!.lessons[0]!.id);
-      await client.query("update workout_plans set status='superseded', updated_at=now() where user_id=$1 and status='active'", [userId]);
-      const planResult = await client.query(`insert into workout_plans (user_id,revision,status,reason,lesson_ids,assessment_session_id)
-        select $1,coalesce(max(revision),0)+1,'active',$2,$3,$4 from workout_plans where user_id=$1
-        returning id,revision,status,generated_at,reason,lesson_ids`, [userId, JSON.stringify({ id: 'Dibuat dari hasil asesmen gerak Anda.', en: 'Generated from your movement assessment.' }), lessonIds, assessmentId]);
+
       await client.query(`insert into outbox_events (user_id,aggregate_type,aggregate_id,event_type,payload)
-        values ($1,'assessment',$2,'AssessmentCompleted',$3)`, [userId, assessmentId, JSON.stringify({ userId, recommendedLevel: input.recommendedLevel })]);
-      return { assessment: this.mapAssessment(row), xpAwarded: 75, currentPlan: this.mapPlan(planResult.rows[0]!) };
+        values ($1,'assessment',$2,'AssessmentCompleted',$3)`, [userId, assessmentId, JSON.stringify({ userId, progressionSuppressed })]);
+      return { assessment: this.mapAssessment(row), xpAwarded, currentPlan, progressionSuppressed };
     });
   }
 

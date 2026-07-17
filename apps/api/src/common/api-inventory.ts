@@ -19,7 +19,7 @@ export const API_ENDPOINTS = [
   { method: 'GET', path: '/v1/courses/:id', authentication: 'bearer', idempotency: 'not_applicable', response: 'CourseWithLessonStates' },
   { method: 'GET', path: '/v1/progress', authentication: 'bearer', idempotency: 'not_applicable', response: 'Progress' },
   { method: 'POST', path: '/v1/assessments', authentication: 'bearer', idempotency: 'required', response: 'Assessment' },
-  { method: 'POST', path: '/v1/assessments/:id/complete', authentication: 'bearer', idempotency: 'required', response: 'AssessmentCompletion' },
+  { method: 'POST', path: '/v1/assessments/:id/complete', authentication: 'bearer', idempotency: 'required', response: 'AssessmentCompletionV2' },
   { method: 'GET', path: '/v1/plans/current', authentication: 'bearer', idempotency: 'not_applicable', response: 'WorkoutPlan' },
   { method: 'POST', path: '/v1/workout-sessions', authentication: 'bearer', idempotency: 'required', response: 'WorkoutSession' },
   { method: 'PUT', path: '/v1/workout-sessions/:id/results', authentication: 'bearer', idempotency: 'required', response: 'WorkoutSession' },

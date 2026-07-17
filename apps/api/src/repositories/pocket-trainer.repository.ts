@@ -1,6 +1,7 @@
 import type {
   Assessment,
-  AssessmentResult,
+  AssessmentCompletionInput,
+  AssessmentCompletionV2,
   Bootstrap,
   Catalog,
   Consent,
@@ -49,7 +50,7 @@ export abstract class PocketTrainerRepository {
   abstract getPrivacyExport(userId: string): Promise<PrivacyExport>;
   abstract deleteAccount(userId: string, key: string): Promise<IdempotencyResult<PrivacyDeletion>>;
   abstract createAssessment(userId: string, key: string): Promise<IdempotencyResult<Assessment>>;
-  abstract completeAssessment(userId: string, assessmentId: string, key: string, result: AssessmentResult): Promise<IdempotencyResult<{ assessment: Assessment; xpAwarded: number; currentPlan: WorkoutPlan }>>;
+  abstract completeAssessment(userId: string, assessmentId: string, key: string, input: AssessmentCompletionInput): Promise<IdempotencyResult<AssessmentCompletionV2>>;
   abstract getCurrentPlan(userId: string): Promise<WorkoutPlan | null>;
   abstract createWorkout(userId: string, key: string, input: CreateWorkoutInput): Promise<IdempotencyResult<WorkoutSession>>;
   abstract saveWorkoutResults(userId: string, sessionId: string, key: string, results: ExerciseResultInput[]): Promise<IdempotencyResult<WorkoutSession>>;
