@@ -1,8 +1,16 @@
-import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import {
+  Animated,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, spacing, type } from '../design/tokens';
 import { Icon, IconName } from './Icon';
+import { useReducedMotion } from './useReducedMotion';
 
 export type AppTab = 'home' | 'learn' | 'coach' | 'progress' | 'profile';
 type BottomNavProps = { activeTab: AppTab; onChange: (tab: AppTab) => void };
@@ -14,8 +22,141 @@ const tabs: Array<{ id: AppTab; label: string; icon: IconName }> = [
   { id: 'profile', label: 'Profil', icon: 'person' },
 ];
 
+const useNativeDriver = Platform.OS !== 'web';
+
+type AnimatedTabProps = Readonly<{
+  active: boolean;
+  icon: IconName;
+  label: string;
+  onPress: () => void;
+  reducedMotion: boolean;
+}>;
+
+function AnimatedTab({
+  active,
+  icon,
+  label,
+  onPress,
+  reducedMotion,
+}: AnimatedTabProps) {
+  const isCoach = icon === 'camera';
+  const selection = useRef(new Animated.Value(active ? 1 : 0)).current;
+  const press = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const animation = reducedMotion
+      ? Animated.timing(selection, {
+          duration: 120,
+          toValue: active ? 1 : 0,
+          useNativeDriver,
+        })
+      : Animated.spring(selection, {
+          friction: 24,
+          tension: 220,
+          toValue: active ? 1 : 0,
+          useNativeDriver,
+        });
+    animation.start();
+    return () => animation.stop();
+  }, [active, reducedMotion, selection]);
+
+  const animatePress = (toValue: number) => {
+    if (reducedMotion) {
+      press.setValue(1);
+      return;
+    }
+    Animated.spring(press, {
+      friction: 22,
+      tension: 320,
+      toValue,
+      useNativeDriver,
+    }).start();
+  };
+
+  const iconScale = selection.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.04],
+  });
+  const iconTranslateY = selection.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -1],
+  });
+  const coachScale = selection.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.98, 1.04],
+  });
+  const activeBackgroundScale = selection.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.82, 1],
+  });
+
+  const iconColor = isCoach
+    ? colors.canvas
+    : active
+    ? colors.coral
+    : colors.muted;
+
+  return (
+    <Pressable
+      accessibilityLabel={`${label} tab`}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      onPress={onPress}
+      onPressIn={() => animatePress(0.96)}
+      onPressOut={() => animatePress(1)}
+      style={({ pressed }) => [styles.tab, pressed && styles.pressed]}
+    >
+      <Animated.View
+        style={[
+          styles.tabMotion,
+          {
+            transform: [
+              { scale: press },
+              ...(isCoach ? [{ scale: coachScale }] : []),
+            ],
+          },
+        ]}
+      >
+        {isCoach ? (
+          <View style={styles.coachButton}>
+            <Icon color={iconColor} name={icon} size={23} />
+          </View>
+        ) : (
+          <Animated.View
+            style={[
+              styles.iconBox,
+              {
+                transform: [
+                  { scale: iconScale },
+                  { translateY: iconTranslateY },
+                ],
+              },
+            ]}
+          >
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.activeIconBox,
+                {
+                  opacity: selection,
+                  transform: [{ scale: activeBackgroundScale }],
+                },
+              ]}
+            />
+            <Icon color={iconColor} name={icon} size={22} />
+          </Animated.View>
+        )}
+        <Text style={[styles.label, active && styles.activeLabel]}>
+          {label}
+        </Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
 export function BottomNav({ activeTab, onChange }: BottomNavProps) {
   const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
   return (
     <View
       accessibilityRole="tablist"
@@ -23,37 +164,15 @@ export function BottomNav({ activeTab, onChange }: BottomNavProps) {
     >
       {tabs.map(tab => {
         const isActive = activeTab === tab.id;
-        const isCoach = tab.id === 'coach';
-        const iconColor = isCoach
-          ? colors.canvas
-          : isActive
-          ? colors.coral
-          : colors.muted;
         return (
-          <Pressable
-            accessibilityLabel={`${tab.label} tab`}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: isActive }}
+          <AnimatedTab
+            active={isActive}
+            icon={tab.icon}
             key={tab.id}
+            label={tab.label}
             onPress={() => onChange(tab.id)}
-            style={({ pressed }) => [styles.tab, pressed && styles.pressed]}
-          >
-            <View
-              style={[
-                isCoach ? styles.coachButton : styles.iconBox,
-                isActive && !isCoach && styles.activeIconBox,
-              ]}
-            >
-              <Icon
-                color={iconColor}
-                name={tab.icon}
-                size={isCoach ? 23 : 22}
-              />
-            </View>
-            <Text style={[styles.label, isActive && styles.activeLabel]}>
-              {tab.label}
-            </Text>
-          </Pressable>
+            reducedMotion={reducedMotion}
+          />
         );
       })}
     </View>
@@ -77,20 +196,28 @@ const styles = StyleSheet.create({
   },
   tab: {
     alignItems: 'center',
-    gap: 4,
     minHeight: 56,
     minWidth: 58,
     paddingHorizontal: spacing.xs,
   },
   pressed: { opacity: 0.72 },
+  tabMotion: { alignItems: 'center', gap: 4 },
   iconBox: {
     alignItems: 'center',
-    borderRadius: radius.control,
     height: 28,
     justifyContent: 'center',
+    position: 'relative',
     width: 34,
   },
-  activeIconBox: { backgroundColor: 'rgba(255,90,107,0.13)' },
+  activeIconBox: {
+    backgroundColor: 'rgba(255,90,107,0.13)',
+    borderRadius: radius.control,
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
   coachButton: {
     alignItems: 'center',
     backgroundColor: colors.coral,

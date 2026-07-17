@@ -198,8 +198,9 @@ export class PostgresPocketTrainerRepository extends PocketTrainerRepository imp
         currentPlan: planResult.rows[0] ? this.mapPlan(planResult.rows[0]) : null,
         progress: await this.readProgress(client, userId),
         workouts,
+        nutrition: await this.readNutritionExport(client, userId),
         manifest: {
-          includes: ['profile', 'consents', 'assessments', 'currentPlan', 'progress', 'workouts'],
+          includes: ['profile', 'consents', 'assessments', 'currentPlan', 'progress', 'workouts', 'nutrition'],
           excludes: ['raw_camera_frames', 'pose_landmarks', 'access_tokens'],
         },
       };
@@ -210,7 +211,7 @@ export class PostgresPocketTrainerRepository extends PocketTrainerRepository imp
     return this.idempotent(userId, key, 'privacy.account.delete', {}, async (client) => {
       const completedAt = new Date().toISOString();
       const manifest = {
-        deleted: ['profile', 'consents', 'assessments', 'plans', 'workouts', 'progress', 'idempotency_records'],
+        deleted: ['profile', 'consents', 'assessments', 'plans', 'workouts', 'progress', 'nutrition', 'idempotency_records'],
         retained: ['account_deletion_audit_marker', 'supabase_identity_tombstone'],
       };
       await client.query(`insert into privacy_action_log (user_id, action, idempotency_key, manifest)
@@ -220,12 +221,32 @@ export class PostgresPocketTrainerRepository extends PocketTrainerRepository imp
       await client.query('delete from workout_sessions where user_id=$1', [userId]);
       await client.query('delete from workout_plans where user_id=$1', [userId]);
       await client.query('delete from assessment_sessions where user_id=$1', [userId]);
-      for (const table of ['user_course_progress', 'skill_mastery', 'unlock_events', 'xp_ledger', 'streak_days', 'user_achievements', 'outbox_events', 'processed_client_events', 'devices', 'consents', 'profiles']) {
+      for (const table of ['food_entries', 'nutrition_foods', 'user_course_progress', 'skill_mastery', 'unlock_events', 'xp_ledger', 'streak_days', 'user_achievements', 'outbox_events', 'processed_client_events', 'devices', 'consents', 'profiles']) {
         await client.query(`delete from ${table} where user_id=$1`, [userId]);
       }
       await client.query("update users set status='deleted', deleted_at=$2, updated_at=now() where id=$1", [userId, completedAt]);
       return { action: 'account_deleted', completedAt, manifest };
     });
+  }
+
+  private async readNutritionExport(client: PoolClient, userId: string): Promise<{ foods: unknown[]; entries: unknown[] }> {
+    const foods = await client.query(`select id,barcode,name,brand,serving_amount,serving_unit,serving_label,
+      calories_kcal,protein_g,carbohydrate_g,fat_g,fiber_g,sugar_g,sodium_mg,source,authoritative,created_at,updated_at
+      from nutrition_foods where user_id=$1 order by created_at`, [userId]);
+    const entries = await client.query(`select fe.id,fe.food_id,fe.servings,fe.consumed_at,fe.meal_type,fe.notes,fe.created_at,fe.updated_at,
+      nf.id as nutrition_food_id,nf.user_id as nutrition_food_user_id,nf.barcode as nutrition_food_barcode,
+      nf.name as nutrition_food_name,nf.brand as nutrition_food_brand,nf.serving_amount as nutrition_food_serving_amount,
+      nf.serving_unit as nutrition_food_serving_unit,nf.serving_label as nutrition_food_serving_label,
+      nf.calories_kcal as nutrition_food_calories_kcal,nf.protein_g as nutrition_food_protein_g,
+      nf.carbohydrate_g as nutrition_food_carbohydrate_g,nf.fat_g as nutrition_food_fat_g,
+      nf.fiber_g as nutrition_food_fiber_g,nf.sugar_g as nutrition_food_sugar_g,nf.sodium_mg as nutrition_food_sodium_mg,
+      nf.source as nutrition_food_source,nf.authoritative as nutrition_food_authoritative,
+      nf.created_at as nutrition_food_created_at,nf.updated_at as nutrition_food_updated_at
+      from food_entries fe join nutrition_foods nf on nf.id=fe.food_id where fe.user_id=$1 order by fe.consumed_at`, [userId]);
+    return {
+      foods: foods.rows,
+      entries: entries.rows,
+    };
   }
 
   private async readProgress(client: PoolClient, userId: string): Promise<Progress> {

@@ -15,6 +15,7 @@ const mockExchangeCodeForSession = jest.fn();
 const mockSetSession = jest.fn();
 const mockSignInWithOAuth = jest.fn();
 const mockSignInWithOtp = jest.fn();
+const mockVerifyOtp = jest.fn();
 const mockSignOut = jest.fn();
 const mockStartAutoRefresh = jest.fn();
 const mockStopAutoRefresh = jest.fn();
@@ -38,6 +39,7 @@ jest.mock('../src/auth/supabase', () => ({
       setSession: mockSetSession,
       signInWithOAuth: mockSignInWithOAuth,
       signInWithOtp: mockSignInWithOtp,
+      verifyOtp: mockVerifyOtp,
       signOut: mockSignOut,
       startAutoRefresh: mockStartAutoRefresh,
       stopAutoRefresh: mockStopAutoRefresh,
@@ -70,6 +72,7 @@ describe('AuthProvider', () => {
     mockSetSession.mockReset();
     mockSignInWithOAuth.mockReset();
     mockSignInWithOtp.mockReset();
+    mockVerifyOtp.mockReset();
     mockSignOut.mockReset();
     mockStartAutoRefresh.mockReset();
     mockStopAutoRefresh.mockReset();
@@ -212,13 +215,17 @@ describe('AuthProvider', () => {
     await ReactTestRenderer.act(() => renderer.unmount());
   });
 
-  it('supports Google OAuth, email links, and local logout', async () => {
+  it('supports Google OAuth, email OTP, and local logout', async () => {
     mockGetSession.mockResolvedValue({ data: { session: null }, error: null });
     mockSignInWithOAuth.mockResolvedValue({
       data: { url: 'https://example.supabase.co/oauth/google' },
       error: null,
     });
     mockSignInWithOtp.mockResolvedValue({ error: null });
+    mockVerifyOtp.mockResolvedValue({
+      data: { session: { access_token: 'otp-token' } },
+      error: null,
+    });
     mockSignOut.mockResolvedValue({ error: null });
     let renderer!: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {
@@ -243,16 +250,27 @@ describe('AuthProvider', () => {
       'https://example.supabase.co/oauth/google',
     );
 
-    await expect(latestAuth.sendEmailLink('ayu@example.com')).resolves.toEqual({
-      emailLinkSent: true,
+    await expect(latestAuth.sendEmailOtp('ayu@example.com')).resolves.toEqual({
+      emailOtpSent: true,
     });
     expect(mockSignInWithOtp).toHaveBeenCalledWith({
       email: 'ayu@example.com',
       options: {
-        emailRedirectTo: 'pockettrainer://auth/callback',
         shouldCreateUser: true,
       },
     });
+
+    await ReactTestRenderer.act(async () => {
+      await expect(
+        latestAuth.verifyEmailOtp('ayu@example.com', '123456'),
+      ).resolves.toEqual({});
+    });
+    expect(mockVerifyOtp).toHaveBeenCalledWith({
+      email: 'ayu@example.com',
+      token: '123456',
+      type: 'email',
+    });
+    expect(latestAuth.session?.access_token).toBe('otp-token');
 
     await ReactTestRenderer.act(async () => {
       await latestAuth.signOut();

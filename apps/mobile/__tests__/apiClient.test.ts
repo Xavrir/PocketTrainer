@@ -26,6 +26,7 @@ import {
   ApiClientError,
   apiFetch,
   getCatalog,
+  generateFoodCandidatesFromImage,
   getProgress,
   updateProfile,
   uploadWorkoutResults,
@@ -146,6 +147,29 @@ describe('PocketTrainer API client', () => {
     expect(mockFetch.mock.calls[0][0]).toBe(
       'https://api.pockettrainer.test/v1/workout-sessions/session%2Fwith%20unsafe%20path/results',
     );
+  });
+
+  it('sends bounded image candidates through the authenticated API', async () => {
+    mockFetch.mockResolvedValue(
+      response({ candidates: [], warning: 'Review only.' }),
+    );
+
+    await generateFoodCandidatesFromImage({
+      imageBase64: 'aGVsbG8=',
+      label: 'Example package',
+      mimeType: 'image/jpeg',
+    });
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe(
+      'https://api.pockettrainer.test/v1/foods/candidates/image',
+    );
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({
+      imageBase64: 'aGVsbG8=',
+      label: 'Example package',
+      mimeType: 'image/jpeg',
+    });
   });
 
   it('surfaces structured API errors with request metadata', async () => {

@@ -15,7 +15,7 @@ import { AUTH_REDIRECT_URL, parseAuthCallbackUrl } from './authCallback';
 
 export type AuthResult = {
   error?: string;
-  emailLinkSent?: boolean;
+  emailOtpSent?: boolean;
 };
 
 export type AuthContextValue = {
@@ -25,25 +25,36 @@ export type AuthContextValue = {
   session: Session | null;
   callbackError?: string;
   clearCallbackError: () => void;
-  sendEmailLink: (email: string) => Promise<AuthResult>;
+  sendEmailOtp: (email: string) => Promise<AuthResult>;
+  verifyEmailOtp: (email: string, token: string) => Promise<AuthResult>;
   signInWithGoogle: () => Promise<AuthResult>;
   signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function messageFor(error: { message: string }): string {
+function messageFor(
+  error: { message: string },
+  context: 'callback' | 'otp' | 'general' = 'general',
+): string {
   const message = error.message.toLowerCase();
   if (message.includes('provider is not enabled')) {
     return 'Login Google belum diaktifkan pada proyek Supabase.';
   }
   if (
-    message.includes('token has expired') ||
-    message.includes('token is expired') ||
-    message.includes('invalid token') ||
-    message.includes('code verifier')
+    context === 'callback' &&
+    (message.includes('token has expired') ||
+      message.includes('token is expired') ||
+      message.includes('invalid token') ||
+      message.includes('code verifier'))
   ) {
     return 'Tautan login tidak valid atau sudah kedaluwarsa. Minta tautan baru.';
+  }
+  if (
+    context === 'otp' &&
+    (message.includes('token') || message.includes('code'))
+  ) {
+    return 'Kode OTP salah atau sudah kedaluwarsa. Minta kode baru.';
   }
   if (message.includes('access_denied')) return 'Login dibatalkan.';
   if (message.includes('rate limit')) {
@@ -133,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!active) return;
           const authError =
             error instanceof Error
-              ? messageFor(error)
+              ? messageFor(error, 'callback')
               : 'Callback autentikasi tidak dapat diproses.';
           setCallbackError(authError);
           return 'failed' as const;
@@ -223,7 +234,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const sendEmailLink = useCallback(
+  const sendEmailOtp = useCallback(
     async (email: string): Promise<AuthResult> => {
       const client = getSupabaseClient();
       if (!client) return { error: 'Supabase Auth belum dikonfigurasi.' };
@@ -232,15 +243,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { error } = await client.auth.signInWithOtp({
           email,
           options: {
-            emailRedirectTo: AUTH_REDIRECT_URL,
             shouldCreateUser: true,
           },
         });
         if (error) return { error: messageFor(error) };
-        return { emailLinkSent: true };
+        return { emailOtpSent: true };
       } catch {
         return {
           error: 'Tidak dapat terhubung. Periksa koneksi lalu coba lagi.',
+        };
+      }
+    },
+    [],
+  );
+
+  const verifyEmailOtp = useCallback(
+    async (email: string, token: string): Promise<AuthResult> => {
+      const client = getSupabaseClient();
+      if (!client) return { error: 'Supabase Auth belum dikonfigurasi.' };
+      setCallbackError(undefined);
+      try {
+        const { data, error } = await client.auth.verifyOtp({
+          email,
+          token,
+          type: 'email',
+        });
+        if (error) return { error: messageFor(error, 'otp') };
+        if (data.session) setSession(data.session);
+        return {};
+      } catch {
+        return {
+          error:
+            'Tidak dapat memverifikasi kode. Periksa koneksi lalu coba lagi.',
         };
       }
     },
@@ -264,19 +298,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearCallbackError,
       configured: isSupabaseConfigured,
       loading,
-      sendEmailLink,
+      sendEmailOtp,
       session,
       signInWithGoogle,
       signOut,
+      verifyEmailOtp,
     }),
     [
       callbackError,
       clearCallbackError,
       loading,
-      sendEmailLink,
+      sendEmailOtp,
       session,
       signInWithGoogle,
       signOut,
+      verifyEmailOtp,
     ],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

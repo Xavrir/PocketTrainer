@@ -25,7 +25,7 @@ or deployment configuration.
 ## Release gates
 
 1. Run API tests, typecheck, production build, Docker build, and Bicep compile.
-2. Provision PostgreSQL and apply migrations `001` through `003` as a migration
+2. Provision PostgreSQL and apply migrations `001` through `004` as a migration
    owner; verify forced RLS with the runtime role.
 3. Publish an immutable API image to an authorized registry.
 4. Obtain cost approval, then deploy the immutable image to App Service (or
@@ -46,11 +46,13 @@ Detailed commands live in `infrastructure/azure/README.md` and
   `rg-ruteaman` resources were not modified.
 - Stable origin: `https://pockettrainer-api-ae494c.azurewebsites.net` on a
   small Linux B1 App Service plan. Both health endpoints return 200.
-- PostgreSQL Flexible Server 16 uses a burstable B1ms SKU, migrations 001–003,
+- PostgreSQL Flexible Server 16 uses a burstable B1ms SKU, migrations 001–003
+  applied; migration 004 is prepared locally but awaits a migration-owner run,
   a separate runtime role without superuser/`BYPASSRLS`, and forced RLS.
 - The API runs from an immutable ACR image digest pulled through managed
   identity. Database firewall access is narrowed to Web App outbound IPs and a
   migration-operator IP; rotate/update those rules if platform egress changes.
+- The current deployed digest is `sha256:8da9f1c51381b72cb152c1b45b271e415162e7a8de22c4a2f92a5d12e0c25c75` and includes the bounded image-candidate route. Gemini remains disabled until `GEMINI_API_KEY` is provisioned server-side.
 - Container Apps was not used because the student subscription's sole allowed
   Southeast Asia environment quota is already consumed by an unrelated project
   and other regions are policy-blocked. Cloudflare remains optional and is not

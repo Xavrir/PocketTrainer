@@ -165,7 +165,7 @@ internal class PoseCameraView(private val reactContext: ReactContext) : FrameLay
         closeLandmarkerOnAnalysisExecutor(landmarkerToClose)
         post {
             if (!requestedRunning && analysisGeneration.get() == stoppedGeneration) {
-                overlay.clear()
+                overlay.clear(stoppedGeneration)
             }
         }
     }
@@ -215,7 +215,7 @@ internal class PoseCameraView(private val reactContext: ReactContext) : FrameLay
                 }
                 val rotated = Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
                 if (!isGenerationRunning(generation)) return
-                postIfRunning(generation) { overlay.updateFrame(rotated) }
+                overlay.submitFrame(rotated, generation)
                 landmarker?.detectAsync(BitmapImageBuilder(rotated).build(), now)
             }
         } catch (error: RuntimeException) {
@@ -259,7 +259,15 @@ internal class PoseCameraView(private val reactContext: ReactContext) : FrameLay
                     putDouble("confidence", confidence)
                 }
             }
-            postIfRunning(generation) { overlay.update(points, input.width, input.height) }
+            postIfRunning(generation) {
+                if (fullBody) {
+                    overlay.update(points, input.width, input.height)
+                } else {
+                    // A low-confidence pose is not safe to render as guidance. Keep the
+                    // camera frame stable and remove only the stale skeleton.
+                    overlay.clearLandmarks()
+                }
+            }
             emitTracking(confidence, fullBody, if (fullBody) null else "landmark_confidence", generation)
             emit("calibration_status", generation) {
                 putString("status", if (fullBody) "ready" else "body_outside_frame")

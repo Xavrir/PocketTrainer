@@ -27,4 +27,13 @@ export const API_ENDPOINTS = [
   { method: 'POST', path: '/v1/sync/batch', authentication: 'bearer', idempotency: 'required', response: 'SyncBatchResult' },
   { method: 'GET', path: '/v1/privacy/export', authentication: 'bearer', idempotency: 'not_applicable', response: 'PrivacyExport' },
   { method: 'DELETE', path: '/v1/privacy/account', authentication: 'bearer', idempotency: 'required', response: 'PrivacyDeletion' },
+  { method: 'GET', path: '/v1/foods/barcodes/:barcode', authentication: 'bearer', idempotency: 'not_applicable', response: 'BarcodeNutritionFood (persisted may be false when storage is unavailable)' },
+  { method: 'POST', path: '/v1/foods/custom', authentication: 'bearer', idempotency: 'required', response: 'NutritionFood' },
+  { method: 'POST', path: '/v1/foods/candidates', authentication: 'bearer', idempotency: 'not_applicable', response: 'NutritionCandidateResponse' },
+  { method: 'POST', path: '/v1/foods/candidates/image', authentication: 'bearer', idempotency: 'not_applicable', response: 'NutritionCandidateResponse' },
+  { method: 'GET', path: '/v1/food-entries', authentication: 'bearer', idempotency: 'not_applicable', response: 'FoodEntry[]' },
+  { method: 'POST', path: '/v1/food-entries', authentication: 'bearer', idempotency: 'required', response: 'FoodEntry' },
+  { method: 'PUT', path: '/v1/food-entries/:id', authentication: 'bearer', idempotency: 'required', response: 'FoodEntry' },
+  { method: 'DELETE', path: '/v1/food-entries/:id', authentication: 'bearer', idempotency: 'required', response: 'DeletedFoodEntry' },
+  { method: 'GET', path: '/v1/nutrition/daily', authentication: 'bearer', idempotency: 'not_applicable', response: 'DailyNutrition' },
 ] as const satisfies readonly ApiEndpoint[];

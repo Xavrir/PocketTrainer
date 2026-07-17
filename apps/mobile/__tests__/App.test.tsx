@@ -54,17 +54,16 @@ it.each<[AppTab, string]>([
   expect(JSON.stringify(renderer.toJSON())).toContain(expected);
 });
 
-it('presents Google first and an honest email-link fallback', async () => {
+it('presents Google first and a six-digit email OTP fallback', async () => {
   const renderer = await renderApp('auth-preview');
   const authScreen = JSON.stringify(renderer.toJSON());
   expect(authScreen).toContain('Lanjut dengan Google');
-  expect(authScreen).toContain('Kirim tautan masuk');
+  expect(authScreen).toContain('Kirim kode OTP');
   expect(authScreen.indexOf('Lanjut dengan Google')).toBeLessThan(
-    authScreen.indexOf('Kirim tautan masuk'),
+    authScreen.indexOf('Kirim kode OTP'),
   );
-  expect(authScreen).toContain('bukan kode angka');
-  expect(authScreen).not.toContain('Kode OTP');
-  expect(authScreen).not.toContain('6 digit');
+  expect(authScreen).toContain('6 digit');
+  expect(authScreen).not.toContain('tautan sekali pakai');
   expect(authScreen).not.toContain('Kata sandi');
 });
 

@@ -52,12 +52,26 @@ jobs:
             https://*) ;;
             *) echo "Release API URL must use HTTPS." >&2; exit 1 ;;
           esac
-          case "$API_BASE_URL" in
-            *localhost*|*127.0.0.1*|*10.0.2.2*)
-              echo "Release API URL cannot point to a development machine." >&2
-              exit 1
-              ;;
-          esac
+          node - "$API_BASE_URL" <<'NODE'
+          const raw = process.argv[2];
+          const url = new URL(raw);
+          const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+          const octets = host.split('.').map(Number);
+          const privateIpv4 = octets.length === 4 && octets.every(Number.isInteger) && (
+            octets[0] === 0 || octets[0] === 10 || octets[0] === 127 ||
+            (octets[0] === 169 && octets[1] === 254) ||
+            (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+            (octets[0] === 192 && octets[1] === 168)
+          );
+          const localHost = host === 'localhost' || host.endsWith('.localhost') ||
+            host.endsWith('.local') || host === '::' || host === '::1' ||
+            /^f[cd][0-9a-f:]+$/i.test(host) || /^fe[89ab][0-9a-f:]+$/i.test(host);
+          const quickTunnel = host === 'trycloudflare.com' || host.endsWith('.trycloudflare.com');
+          if (privateIpv4 || localHost || quickTunnel) {
+            console.error('Release API URL cannot point to a development/private/temporary endpoint.');
+            process.exit(1);
+          }
+          NODE
           printf '%s\n' \
             "POCKETTRAINER_SUPABASE_URL=$SUPABASE_URL" \
             "POCKETTRAINER_SUPABASE_PUBLISHABLE_KEY=$SUPABASE_PUBLISHABLE_KEY" \

@@ -8,6 +8,35 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.view.View
 import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
+import java.util.concurrent.atomic.AtomicBoolean
+
+internal class LatestFrameMailbox<T> {
+    private var latest: T? = null
+
+    @Synchronized
+    fun offer(value: T): T? {
+        val previous = latest
+        latest = value
+        return previous
+    }
+
+    @Synchronized
+    fun take(): T? {
+        val value = latest
+        latest = null
+        return value
+    }
+
+    @Synchronized
+    fun clear(): T? {
+        val value = latest
+        latest = null
+        return value
+    }
+
+    @Synchronized
+    fun isEmpty(): Boolean = latest == null
+}
 
 internal class PoseOverlayView(context: Context) : View(context) {
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -17,10 +46,54 @@ internal class PoseOverlayView(context: Context) : View(context) {
     }
     private val lowerLinePaint = Paint(linePaint).apply { color = Color.rgb(102, 221, 177) }
     private val pointPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 249, 242) }
+    private val framePaint = Paint(Paint.FILTER_BITMAP_FLAG)
+    private val pendingFrames = LatestFrameMailbox<PendingFrame>()
+    private val frameDispatchScheduled = AtomicBoolean(false)
+    @Volatile private var minimumFrameGeneration = Long.MIN_VALUE
     private var frame: Bitmap? = null
+    private var frameCanvas: Canvas? = null
     private var landmarks: List<NormalizedLandmark> = emptyList()
     private var inputWidth = 1
     private var inputHeight = 1
+
+    /**
+     * Queues only the newest analyzed frame. The incoming bitmap remains owned by
+     * the analyzer/MediaPipe call and is copied into one UI-owned display bitmap;
+     * neither side recycles it while asynchronous inference may still use it.
+     */
+    fun submitFrame(bitmap: Bitmap, generation: Long) {
+        if (bitmap.isRecycled || generation <= minimumFrameGeneration) return
+        pendingFrames.offer(PendingFrame(bitmap, generation))
+        scheduleFrameDrain()
+    }
+
+    private fun scheduleFrameDrain() {
+        if (!frameDispatchScheduled.compareAndSet(false, true)) return
+        if (!post(::drainLatestFrame)) {
+            frameDispatchScheduled.set(false)
+        }
+    }
+
+    private fun drainLatestFrame() {
+        val pending = pendingFrames.take()
+        if (pending != null && pending.generation > minimumFrameGeneration) {
+            copyFrameOnUi(pending.bitmap)
+        }
+        frameDispatchScheduled.set(false)
+        if (!pendingFrames.isEmpty()) scheduleFrameDrain()
+    }
+
+    private fun copyFrameOnUi(bitmap: Bitmap) {
+        if (bitmap.isRecycled) return
+        if (frame == null || frame!!.width != bitmap.width || frame!!.height != bitmap.height) {
+            frame = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+            frameCanvas = Canvas(frame!!)
+        }
+        frameCanvas?.drawBitmap(bitmap, 0f, 0f, framePaint)
+        inputWidth = bitmap.width.coerceAtLeast(1)
+        inputHeight = bitmap.height.coerceAtLeast(1)
+        invalidate()
+    }
 
     fun update(points: List<NormalizedLandmark>, frameWidth: Int, frameHeight: Int) {
         landmarks = points
@@ -29,20 +102,16 @@ internal class PoseOverlayView(context: Context) : View(context) {
         invalidate()
     }
 
-    fun updateFrame(bitmap: Bitmap) {
-        frame = bitmap
-        inputWidth = bitmap.width.coerceAtLeast(1)
-        inputHeight = bitmap.height.coerceAtLeast(1)
-        invalidate()
-    }
-
     fun clearLandmarks() {
         landmarks = emptyList()
         invalidate()
     }
 
-    fun clear() {
+    fun clear(stoppedGeneration: Long) {
+        minimumFrameGeneration = maxOf(minimumFrameGeneration, stoppedGeneration)
+        pendingFrames.clear()
         frame = null
+        frameCanvas = null
         landmarks = emptyList()
         invalidate()
     }
@@ -90,4 +159,6 @@ internal class PoseOverlayView(context: Context) : View(context) {
             26 to 28,
         )
     }
+
+    private data class PendingFrame(val bitmap: Bitmap, val generation: Long)
 }

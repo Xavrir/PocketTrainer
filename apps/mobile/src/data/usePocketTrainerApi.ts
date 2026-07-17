@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ApiClientError,
+  getDailyNutrition,
+  getFoodEntries,
   getBootstrap,
   persistOnboarding,
   pocketTrainerApi,
   type Bootstrap,
   type CompleteWorkoutFlowInput,
   type CompleteWorkoutFlowResult,
+  type DailyNutrition,
+  type FoodEntry,
   type PersistOnboardingInput,
   type PersistOnboardingResult,
 } from '../api';
@@ -32,6 +36,62 @@ function asApiClientError(error: unknown): ApiClientError {
 
 export function usePocketTrainerApi() {
   return pocketTrainerApi;
+}
+
+function useNutritionResource<T>(
+  enabled: boolean,
+  request: (signal: AbortSignal) => Promise<T>,
+) {
+  const [revision, setRevision] = useState(0);
+  const [state, setState] = useState<ApiLoadState<T>>({
+    data: null,
+    error: null,
+    loading: enabled,
+  });
+
+  useEffect(() => {
+    if (!enabled) {
+      setState(current => ({ ...current, loading: false }));
+      return;
+    }
+    const controller = new AbortController();
+    setState(current => ({ ...current, error: null, loading: true }));
+    request(controller.signal)
+      .then(data => {
+        if (!controller.signal.aborted) {
+          setState({ data, error: null, loading: false, source: 'server' });
+        }
+      })
+      .catch(error => {
+        if (!controller.signal.aborted) {
+          setState({
+            data: null,
+            error: asApiClientError(error),
+            loading: false,
+          });
+        }
+      });
+    return () => controller.abort();
+  }, [enabled, request, revision]);
+
+  const reload = useCallback(() => setRevision(value => value + 1), []);
+  return useMemo(() => ({ ...state, reload }), [reload, state]);
+}
+
+export function useFoodEntries(date?: string, enabled = true) {
+  const request = useCallback(
+    (signal: AbortSignal) => getFoodEntries(date, { signal }),
+    [date],
+  );
+  return useNutritionResource<FoodEntry[]>(enabled, request);
+}
+
+export function useDailyNutrition(date: string, enabled = true) {
+  const request = useCallback(
+    (signal: AbortSignal) => getDailyNutrition(date, { signal }),
+    [date],
+  );
+  return useNutritionResource<DailyNutrition>(enabled, request);
 }
 
 export function useBootstrapData(

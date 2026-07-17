@@ -182,10 +182,10 @@ export class InMemoryPocketTrainerRepository extends PocketTrainerRepository {
       currentPlan: user.plan,
       progress: this.buildProgress(user),
       workouts: [...user.workouts.values()],
-      manifest: {
-        includes: ['profile', 'consents', 'assessments', 'currentPlan', 'progress', 'workouts'],
-        excludes: ['raw_camera_frames', 'pose_landmarks', 'access_tokens'],
-      },
+        manifest: {
+          includes: ['profile', 'consents', 'assessments', 'currentPlan', 'progress', 'workouts', 'nutrition'],
+          excludes: ['raw_camera_frames', 'pose_landmarks', 'access_tokens'],
+        },
     };
   }
 

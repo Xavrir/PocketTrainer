@@ -222,6 +222,7 @@ export type PrivacyExport = {
   currentPlan: WorkoutPlan | null;
   progress: Progress;
   workouts: WorkoutSession[];
+  nutrition?: { foods: unknown[]; entries: unknown[] };
   manifest: {
     includes: string[];
     excludes: string[];

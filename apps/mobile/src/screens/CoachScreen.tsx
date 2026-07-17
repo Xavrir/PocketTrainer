@@ -11,8 +11,18 @@ import { colors, radius, spacing, type } from '../design/tokens';
 import { Icon, IconName } from '../components/Icon';
 import { PrimaryButton } from '../components/PrimaryButton';
 
-type Props = { onAssessment: () => void; onWorkout: () => void };
-export function CoachScreen({ onAssessment, onWorkout }: Props) {
+type Props = {
+  onAssessment: () => void;
+  onWorkout: () => void;
+  onFoodScan?: () => void;
+  onNutritionDiary?: () => void;
+};
+export function CoachScreen({
+  onAssessment,
+  onWorkout,
+  onFoodScan,
+  onNutritionDiary,
+}: Props) {
   return (
     <ScrollView
       style={styles.screen}
@@ -60,10 +70,35 @@ export function CoachScreen({ onAssessment, onWorkout }: Props) {
             body: 'Perbarui kemampuan dan jalur personalmu.',
             tag: '3 MENIT',
           },
+          ...(onFoodScan
+            ? [
+                {
+                  icon: 'camera',
+                  title: 'Scan makanan',
+                  body: 'Pindai barcode atau masukkan label nutrisi.',
+                  tag: 'NUTRISI',
+                },
+              ]
+            : []),
+          ...(onNutritionDiary
+            ? [
+                {
+                  icon: 'chart',
+                  title: 'Jurnal nutrisi',
+                  body: 'Lihat ringkasan kalori dan makro hari ini.',
+                  tag: 'HARI INI',
+                },
+              ]
+            : []),
         ].map((item, index) => (
           <Pressable
             key={item.title}
-            onPress={index === 1 ? onAssessment : onWorkout}
+            onPress={() => {
+              if (item.title === 'Asesmen gerak') return onAssessment();
+              if (item.title === 'Scan makanan') return onFoodScan?.();
+              if (item.title === 'Jurnal nutrisi') return onNutritionDiary?.();
+              return onWorkout();
+            }}
             style={({ pressed }) => [styles.option, pressed && styles.pressed]}
           >
             <View style={styles.optionIcon}>

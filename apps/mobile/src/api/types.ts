@@ -253,3 +253,201 @@ export type PrivacyDeletion = {
   completedAt: string;
   manifest: { deleted: string[]; retained: string[] };
 };
+
+export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'other';
+
+export type NutritionSource =
+  | 'database'
+  | 'manual'
+  | 'barcode'
+  | 'custom'
+  | 'image_scan'
+  | 'gemini_unverified';
+
+export type NutritionFoodSource = 'open_food_facts' | 'custom';
+
+export type NutritionPerServing = {
+  caloriesKcal: number;
+  proteinG: number;
+  carbohydrateG: number;
+  fatG: number;
+  fiberG: number;
+  sugarG: number;
+  sodiumMg: number;
+};
+
+export type FoodCandidatesRequest = Readonly<{
+  label: string;
+  barcode?: string;
+}>;
+
+export type FoodImageCandidatesRequest = Readonly<{
+  imageBase64: string;
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
+  label?: string;
+}>;
+
+export type FoodCandidateSuggestion = Readonly<{
+  barcode: string | null;
+  name: string;
+  brand: string | null;
+  serving: { amount: number; unit: string; label: string | null };
+  nutritionPerServing: NutritionPerServing;
+  source: 'gemini_unverified';
+  authoritative: false;
+}>;
+
+export type FoodCandidatesResponse = Readonly<{
+  candidates: FoodCandidateSuggestion[];
+  warning: string;
+}>;
+
+/** Raw nutrition contract returned by the backend food provider. */
+export type NutritionFood = {
+  id: string;
+  name: string;
+  brand?: string | null;
+  barcode?: string | null;
+  serving: { amount: number; unit: string; label: string | null };
+  nutritionPerServing: NutritionPerServing;
+  source: NutritionFoodSource;
+  authoritative: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type BarcodeNutritionFood = Omit<NutritionFood, 'id' | 'createdAt' | 'updatedAt'> & {
+  id: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  persisted: boolean;
+};
+
+export type NutritionProfile = {
+  calories: number;
+  proteinGrams?: number;
+  carbohydrateGrams?: number;
+  fatGrams?: number;
+  fiberGrams?: number;
+  sugarGrams?: number;
+  sodiumMilligrams?: number;
+};
+
+export type FoodCandidate = {
+  id?: string;
+  name: string;
+  brandName?: string;
+  barcode?: string;
+  source: Exclude<NutritionSource, 'manual' | 'image_scan'>;
+  providerSource?: NutritionFoodSource;
+  authoritative: boolean;
+  persisted: boolean;
+  servingAmount: number;
+  servingUnit: string;
+  servingGrams?: number;
+  nutrition: NutritionProfile;
+};
+
+export type BarcodeLookup = {
+  barcode: string;
+  food: FoodCandidate | null;
+};
+
+export type CustomFood = FoodCandidate & {
+  id: string;
+  persisted: true;
+  source: 'custom';
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type CreateCustomFoodInput = {
+  name: string;
+  brand?: string | null;
+  serving: { amount: number; unit: string; label?: string };
+  nutritionPerServing: NutritionPerServing;
+};
+
+export type FoodEntry = {
+  id: string;
+  userId?: string;
+  mealType: MealType;
+  consumedAt: string;
+  foodItemId?: string;
+  customName?: string;
+  portionAmount: number;
+  portionUnit: string;
+  calories: number;
+  proteinGrams?: number;
+  carbohydrateGrams?: number;
+  fatGrams?: number;
+  fiberGrams?: number;
+  sugarGrams?: number;
+  sodiumMilligrams?: number;
+  source: NutritionSource;
+  confidence?: number;
+  food?: FoodCandidate;
+  notes?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type NutritionFoodEntry = {
+  id: string;
+  foodId: string;
+  food: NutritionFood;
+  servings: number;
+  consumedAt: string;
+  mealType: MealType;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateFoodEntryInput = Omit<FoodEntry, 'id' | 'userId'>;
+
+export type UpdateFoodEntryInput = Partial<
+  Pick<
+    FoodEntry,
+    | 'mealType'
+    | 'consumedAt'
+    | 'foodItemId'
+    | 'customName'
+    | 'portionAmount'
+    | 'portionUnit'
+    | 'calories'
+    | 'proteinGrams'
+    | 'carbohydrateGrams'
+    | 'fatGrams'
+    | 'fiberGrams'
+    | 'sugarGrams'
+    | 'sodiumMilligrams'
+    | 'source'
+    | 'confidence'
+    | 'notes'
+  >
+>;
+
+export type FoodEntryDeletion = {
+  id: string;
+  deleted: true;
+};
+
+export type NutritionTotals = NutritionProfile & {
+  entryCount?: number;
+};
+
+export type DailyNutrition = {
+  date: string;
+  timezone: string;
+  totals: NutritionTotals;
+  goals?: Partial<NutritionProfile>;
+  entries: FoodEntry[];
+};
+
+export type NutritionDailyResponse = {
+  date: string;
+  timezone: string;
+  totals: NutritionPerServing;
+  entries: NutritionFoodEntry[];
+};

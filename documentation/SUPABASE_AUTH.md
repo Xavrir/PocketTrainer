@@ -12,7 +12,7 @@ server/operator-only and are never committed or bundled into Android.
 
 1. Create a project in the Supabase dashboard.
 2. In **Authentication → Providers**, enable Google and Email. PocketTrainer
-   uses passwordless email links; users do not enter an email password.
+   uses passwordless email OTP; users do not enter an email password.
 3. Create a Google Web OAuth client. Put its client ID and client secret only in
    the Supabase Google provider settings. Add
    `https://PROJECT_REF.supabase.co/auth/v1/callback` as the Google client's
@@ -20,10 +20,10 @@ server/operator-only and are never committed or bundled into Android.
    repository, Gradle configuration, or mobile environment.
 4. Add `pockettrainer://auth/callback` to Supabase's allowed redirect URLs. The
    Android manifest accepts only that scheme, host, and exact path.
-5. Keep the hosted email template's `{{ .ConfirmationURL }}` magic link. The
-   mobile app deliberately does not present a numeric OTP field. A numeric code
-   would require an operator-controlled template containing `{{ .Token }}` and
-   a corresponding reviewed client change.
+5. Configure the hosted email template to render `{{ .Token }}` as a six-digit
+   code. The mobile app requests the code with `signInWithOtp` and verifies it
+   with `verifyOtp`; a `{{ .ConfirmationURL }}`-only magic-link template will
+   not complete this secondary flow.
 6. Use an asymmetric JWT signing key so the API can verify access tokens with
    the project JWKS endpoint.
 
@@ -53,23 +53,20 @@ values.
 
 When these values are present, the app gates the product behind an Indonesian
 Google-first sign-in screen. Google OAuth is the primary action. The secondary
-email action calls Supabase `signInWithOtp`, which sends the hosted template's
-one-time magic link. “OTP” is the Supabase API name; PocketTrainer does not claim
-that the hosted email contains a six-digit code. Users must open the email link
-on the same device and app installation that requested it so the stored PKCE
-verifier is available.
+email action calls Supabase `signInWithOtp`, then verifies the six-digit code
+with `verifyOtp`. The app does not use an email callback for this code flow.
 
 Mobile code cannot configure or rewrite the hosted Supabase email template.
-That is an operator-side dashboard/Management API setting. The current hosted
-behavior emits `{{ .ConfirmationURL }}`, so the shipped secondary UX remains an
-email link and must not be described as numeric OTP.
+That is an operator-side dashboard/Management API setting. The template must
+emit `{{ .Token }}` for the shipped secondary UX to remain a numeric OTP flow.
 
-Both flows use PKCE and return to `pockettrainer://auth/callback`. The app
-processes warm and cold-start callbacks, persists the resulting session in
-AsyncStorage, tracks Supabase auth-state/token-refresh events, refreshes while
-the app is foregrounded, and signs out only the current device session from
-Profile. A release build without Supabase configuration fails closed on a
-branded configuration screen. Only debug/test builds may use
+Google OAuth uses PKCE and returns to `pockettrainer://auth/callback`; the
+email OTP is verified directly in the app. The app processes warm and cold-start
+Google callbacks, persists the resulting session in AsyncStorage, tracks
+Supabase auth-state/token-refresh events, refreshes while the app is
+foregrounded, and signs out only the current device session from Profile. A
+release build without Supabase configuration fails closed on a branded
+configuration screen. Only debug/test builds may use
 `POCKETTRAINER_ALLOW_AUTH_BYPASS=true` for local design review.
 
 ## 3. Configure the NestJS API
@@ -128,8 +125,8 @@ path on a clean physical Android device:
 
 - Tap Google first, complete provider login, and confirm the exact Android deep
   link returns to PocketTrainer without a redirect mismatch.
-- Request an email link and verify the hosted message contains a clickable link,
-  not a numeric-code claim. Open it on the requesting device and confirm login.
+- Request an email OTP, verify the hosted message contains a six-digit code,
+  enter it in the app, and confirm login.
 - Restart the app and confirm the persisted session is restored.
 - Call `GET /v1/bootstrap` and confirm the API accepts the bearer token.
 - Alter or expire the token and confirm the API returns `401`.

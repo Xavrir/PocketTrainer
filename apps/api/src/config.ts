@@ -27,6 +27,10 @@ const environmentSchema = z
     CONTENT_BASE_URL: z.string().url().default('https://content.pockettrainer.app'),
     ALLOW_INSECURE_DEV_AUTH: booleanFromString,
     DEV_AUTH_SUBJECT: z.string().uuid().optional(),
+    OPEN_FOOD_FACTS_BASE_URL: z.string().url().default('https://world.openfoodfacts.org'),
+    NUTRITION_LOOKUP_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(5_000),
+    GEMINI_API_KEY: z.string().min(1).optional(),
+    GEMINI_MODEL: z.string().min(1).default('gemini-2.5-flash'),
   })
   .superRefine((environment, context) => {
     if (environment.NODE_ENV === 'production' && environment.ALLOW_INSECURE_DEV_AUTH) {

@@ -8,6 +8,9 @@ Run `001_foundation.sql` as a migration owner, never as the runtime application 
 
 ```bash
 psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/001_foundation.sql
+psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/002_backend_hardening.sql
+psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/003_native_tracking_alignment.sql
+psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/004_nutrition.sql
 ```
 
 The migration is intentionally a one-time foundation migration. Apply it to a new database. Later changes must be new numbered migrations rather than edits after a release.
@@ -26,6 +29,8 @@ grant select, insert, update on profiles, consents, devices,
   user_course_progress, lesson_attempts, skill_mastery, unlock_events, xp_ledger,
   streak_days, user_achievements, processed_client_events to pockettrainer_runtime;
 grant insert on outbox_events to pockettrainer_runtime;
+grant select, insert, update, delete on nutrition_foods to pockettrainer_runtime;
+grant select, insert, update, delete on food_entries to pockettrainer_runtime;
 grant execute on function resolve_auth_identity(text), build_catalog_manifest(integer),
   process_outbox_batch(integer) to pockettrainer_runtime;
 ```

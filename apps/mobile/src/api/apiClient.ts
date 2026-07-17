@@ -7,17 +7,39 @@ import type {
   CompleteWorkoutInput,
   Consent,
   ConsentType,
+  CreateCustomFoodInput,
+  CreateFoodEntryInput,
   CreateWorkoutInput,
+  CustomFood,
+  DailyNutrition,
+  FoodCandidate,
+  FoodCandidatesRequest,
+  FoodCandidatesResponse,
+  FoodImageCandidatesRequest,
+  FoodEntry,
+  FoodEntryDeletion,
   Profile,
   Progress,
   PrivacyDeletion,
   PrivacyExport,
+  NutritionDailyResponse,
+  BarcodeNutritionFood,
+  NutritionFood,
+  NutritionFoodEntry,
+  UpdateFoodEntryInput,
   UpdateConsentInput,
   UpdateProfileInput,
   UploadWorkoutResultsInput,
   WorkoutCompletion,
   WorkoutSession,
 } from './types';
+import {
+  mapCreateFoodEntryRequest,
+  mapDailyNutrition,
+  mapNutritionFood,
+  mapNutritionFoodEntry,
+  mapUpdateFoodEntryRequest,
+} from '../nutrition/data/nutritionMapper';
 
 export class ApiClientError extends Error {
   readonly cause?: unknown;
@@ -169,7 +191,11 @@ function isApiErrorBody(value: unknown): value is ApiErrorBody {
   );
 }
 
-async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function apiRequest<T>(
+  path: string,
+  init: RequestInit = {},
+  allowEmpty = false,
+): Promise<T> {
   let response: Response;
   try {
     response = await apiFetch(path, init);
@@ -203,7 +229,7 @@ async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
     });
   }
 
-  if (body === undefined) {
+  if (body === undefined && !allowEmpty) {
     throw new ApiClientError({
       code: 'INVALID_RESPONSE',
       message: 'The API returned an empty response.',
@@ -212,6 +238,14 @@ async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
     });
   }
   return body as T;
+}
+
+function requireDate(value: string, label: string): string {
+  const date = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw clientError('INVALID_REQUEST', `${label} must use YYYY-MM-DD.`);
+  }
+  return encodeURIComponent(date);
 }
 
 function jsonMutation<T>(
@@ -321,6 +355,159 @@ export function getProgress(
   return apiRequest<Progress>('/v1/progress', options);
 }
 
+export function lookupBarcode(
+  barcode: string,
+  options: ApiRequestOptions = {},
+): Promise<FoodCandidate | null> {
+  return apiRequest<BarcodeNutritionFood | null>(
+    `/v1/foods/barcodes/${requireId(barcode, 'Barcode')}`,
+    options,
+  ).then(food => (food ? mapNutritionFood(food) : null));
+}
+
+export const lookupFoodByBarcode = lookupBarcode;
+
+export function createCustomFood(
+  input: CreateCustomFoodInput,
+  options: ApiMutationOptions,
+): Promise<CustomFood> {
+  return jsonMutation<NutritionFood>(
+    '/v1/foods/custom',
+    'POST',
+    input,
+    options,
+  ).then(food => ({
+    ...mapNutritionFood(food),
+    id: food.id,
+    persisted: true as const,
+    createdAt: food.createdAt,
+    source: 'custom' as const,
+    updatedAt: food.updatedAt,
+  }));
+}
+
+export function getFoodEntries(
+  date?: string,
+  options: ApiRequestOptions = {},
+): Promise<FoodEntry[]> {
+  const query = date ? `?date=${requireDate(date, 'Nutrition date')}` : '';
+  return apiRequest<NutritionFoodEntry[]>(
+    `/v1/food-entries${query}`,
+    options,
+  ).then(entries => entries.map(mapNutritionFoodEntry));
+}
+
+export function getFoodEntry(
+  foodEntryId: string,
+  options: ApiRequestOptions = {},
+): Promise<FoodEntry> {
+  return apiRequest<NutritionFoodEntry>(
+    `/v1/food-entries/${requireId(foodEntryId, 'Food entry ID')}`,
+    options,
+  ).then(mapNutritionFoodEntry);
+}
+
+export function createFoodEntry(
+  input: CreateFoodEntryInput,
+  options: ApiMutationOptions,
+): Promise<FoodEntry> {
+  return jsonMutation<NutritionFoodEntry>(
+    '/v1/food-entries',
+    'POST',
+    mapCreateFoodEntryRequest(input),
+    options,
+  ).then(mapNutritionFoodEntry);
+}
+
+export function updateFoodEntry(
+  foodEntryId: string,
+  input: UpdateFoodEntryInput,
+  options: ApiMutationOptions,
+): Promise<FoodEntry> {
+  return jsonMutation<NutritionFoodEntry>(
+    `/v1/food-entries/${requireId(foodEntryId, 'Food entry ID')}`,
+    'PUT',
+    mapUpdateFoodEntryRequest(input),
+    options,
+  ).then(mapNutritionFoodEntry);
+}
+
+export function deleteFoodEntry(
+  foodEntryId: string,
+  options: ApiMutationOptions,
+): Promise<FoodEntryDeletion> {
+  const idempotencyKey = options.idempotencyKey.trim();
+  if (!idempotencyKey) {
+    throw clientError(
+      'IDEMPOTENCY_KEY_REQUIRED',
+      'An idempotency key is required for mutations.',
+    );
+  }
+  const headers = new Headers(options.headers);
+  headers.set('Idempotency-Key', idempotencyKey);
+  return apiRequest<FoodEntryDeletion>(
+    `/v1/food-entries/${requireId(foodEntryId, 'Food entry ID')}`,
+    { headers, method: 'DELETE', signal: options.signal },
+  );
+}
+
+export function getDailyNutrition(
+  date: string,
+  options: ApiRequestOptions = {},
+): Promise<DailyNutrition> {
+  return apiRequest<NutritionDailyResponse>(
+    `/v1/nutrition/daily?date=${requireDate(date, 'Nutrition date')}`,
+    options,
+  ).then(mapDailyNutrition);
+}
+
+export const getDailyNutritionSummary = getDailyNutrition;
+
+export function generateFoodCandidates(
+  input: FoodCandidatesRequest,
+  options: ApiRequestOptions = {},
+): Promise<FoodCandidatesResponse> {
+  const label = input.label.trim();
+  if (label.length < 2) {
+    throw clientError(
+      'INVALID_REQUEST',
+      'A food label with at least two characters is required.',
+    );
+  }
+  const barcode = input.barcode?.trim();
+  const body: FoodCandidatesRequest = barcode ? { label, barcode } : { label };
+  return apiRequest<FoodCandidatesResponse>('/v1/foods/candidates', {
+    body: JSON.stringify(body),
+    headers: options.headers,
+    method: 'POST',
+    signal: options.signal,
+  });
+}
+
+export function generateFoodCandidatesFromImage(
+  input: FoodImageCandidatesRequest,
+  options: ApiRequestOptions = {},
+): Promise<FoodCandidatesResponse> {
+  const imageBase64 = input.imageBase64.trim();
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(imageBase64) || imageBase64.length > 900_000) {
+    throw clientError(
+      'INVALID_REQUEST',
+      'The selected food image is invalid or too large to review.',
+    );
+  }
+  const label = input.label?.trim();
+  return apiRequest<FoodCandidatesResponse>('/v1/foods/candidates/image', {
+    body: JSON.stringify({
+      imageBase64,
+      label: label || undefined,
+      mimeType: input.mimeType,
+    }),
+    headers: options.headers,
+    method: 'POST',
+    signal: options.signal,
+  });
+}
+
 export function getPrivacyExport(
   options: ApiRequestOptions = {},
 ): Promise<PrivacyExport> {
@@ -348,13 +535,24 @@ export function deleteAccount(
 
 export const pocketTrainerApi = {
   completeWorkoutSession,
+  createCustomFood,
+  createFoodEntry,
   createWorkoutSession,
+  deleteFoodEntry,
+  getDailyNutrition,
+  getFoodEntries,
+  getFoodEntry,
   getBootstrap,
   getCatalog,
   getProfile,
   getProgress,
   getPrivacyExport,
+  generateFoodCandidates,
+  generateFoodCandidatesFromImage,
+  lookupBarcode,
+  lookupFoodByBarcode,
   deleteAccount,
+  updateFoodEntry,
   updateConsent,
   updateProfile,
   uploadWorkoutResults,

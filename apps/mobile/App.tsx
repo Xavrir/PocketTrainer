@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { BottomNav, AppTab } from './src/components/BottomNav';
+import { TabSceneTransition } from './src/components/TabSceneTransition';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { LearnScreen } from './src/screens/LearnScreen';
 import { CoachScreen } from './src/screens/CoachScreen';
@@ -57,6 +58,15 @@ import type {
 import { deleteAccount } from './src/api';
 import { useOfflineRuntime } from './src/offline';
 import { createWorkoutMeasurement } from './src/data/workoutMeasurement';
+import { useFoodEntries, usePocketTrainerApi } from './src/data';
+import { NutritionDiaryScreen } from './src/nutrition/screens/NutritionDiaryScreen';
+import { NutritionFactsScreen } from './src/nutrition/screens/NutritionFactsScreen';
+import { ScanFoodScreen } from './src/nutrition/screens/ScanFoodScreen';
+import {
+  createFactsFromManualLabel,
+  type NutritionDiaryEntry,
+  type NutritionFacts,
+} from './src/nutrition/components/types';
 
 const APP_VERSION = '0.2.1';
 const CONSENT_VERSION = '1.0.0';
@@ -80,6 +90,110 @@ function derivedOfflineSummary(summary: LiveCoachSessionSummary) {
   return derived;
 }
 
+function toNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function toNutritionFacts(
+  value: unknown,
+  barcode?: string,
+): NutritionFacts | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  const food = raw.food && typeof raw.food === 'object' ? raw.food : raw;
+  const item = food as Record<string, unknown>;
+  const serving =
+    item.serving && typeof item.serving === 'object'
+      ? (item.serving as Record<string, unknown>)
+      : undefined;
+  const nutrition =
+    item.nutritionPerServing && typeof item.nutritionPerServing === 'object'
+      ? (item.nutritionPerServing as Record<string, unknown>)
+      : item.nutrition && typeof item.nutrition === 'object'
+      ? (item.nutrition as Record<string, unknown>)
+      : undefined;
+  const name = typeof item.name === 'string' ? item.name.trim() : '';
+  if (!name || !nutrition) return null;
+  const isOpenFoodFacts =
+    (item.source === 'open_food_facts' ||
+      item.providerSource === 'open_food_facts' ||
+      item.source === 'barcode') &&
+    item.authoritative === true;
+  const servingLabel =
+    typeof serving?.label === 'string' && serving.label.trim()
+      ? serving.label
+      : `${serving?.amount ?? 1} ${serving?.unit ?? 'porsi'}`;
+  const source =
+    isOpenFoodFacts
+      ? {
+          label: 'Open Food Facts',
+          detail:
+            item.persisted === false
+              ? 'Data barcode dari provider pangan kemasan. Belum tersimpan di server; diary akan menunggu sinkronisasi.'
+              : 'Data barcode dari provider pangan kemasan dan tersimpan di server.',
+        }
+      : item.source === 'gemini_unverified'
+      ? {
+          label: 'Bantuan AI (belum diverifikasi)',
+          detail: 'Perkiraan Gemini. Periksa kembali angka pada kemasan.',
+        }
+      : {
+          label: 'Sumber belum terverifikasi',
+          detail: 'Periksa angka pada kemasan sebelum menyimpan.',
+        };
+  return {
+    foodName: name,
+    servingLabel,
+    barcode: typeof item.barcode === 'string' ? item.barcode : barcode,
+    status:
+      isOpenFoodFacts
+        ? 'verified'
+        : 'needs-confirmation',
+    source,
+    nutrients: {
+      calories: toNumber(nutrition.caloriesKcal ?? nutrition.calories),
+      proteinGrams: toNumber(nutrition.proteinG ?? nutrition.proteinGrams),
+      carbohydrateGrams: toNumber(
+        nutrition.carbohydrateG ?? nutrition.carbohydrateGrams,
+      ),
+      fatGrams: toNumber(nutrition.fatG ?? nutrition.fatGrams),
+      fiberGrams: toNumber(nutrition.fiberG ?? nutrition.fiberGrams),
+      sodiumMilligrams: toNumber(
+        nutrition.sodiumMg ?? nutrition.sodiumMilligrams,
+      ),
+      sugarGrams: toNumber(nutrition.sugarG ?? nutrition.sugarGrams),
+    },
+  };
+}
+
+function toNutritionDiaryEntry(value: unknown): NutritionDiaryEntry | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  const facts = toNutritionFacts(raw.food ?? raw);
+  if (!facts || typeof raw.id !== 'string') return null;
+  const consumedAt =
+    typeof raw.consumedAt === 'string' ? new Date(raw.consumedAt) : null;
+  return {
+    id: raw.id,
+    mealLabel: typeof raw.mealType === 'string' ? raw.mealType : 'Makanan',
+    loggedAtLabel:
+      consumedAt && !Number.isNaN(consumedAt.valueOf())
+        ? consumedAt.toLocaleTimeString('id-ID', {
+            hour: '2-digit',
+            minute: '2-digit',
+          })
+        : '—',
+    servings:
+      typeof raw.servings === 'number'
+        ? raw.servings
+        : typeof raw.portionAmount === 'number'
+        ? raw.portionAmount
+        : 1,
+    facts,
+    syncStatus: 'server-confirmed',
+  };
+}
+
 export type Flow =
   | 'welcome'
   | 'consent'
@@ -93,6 +207,9 @@ export type Flow =
   | 'live'
   | 'result'
   | 'safe-variation'
+  | 'nutrition-scan'
+  | 'nutrition-facts'
+  | 'nutrition-diary'
   | 'auth-preview'
   | 'auth-config-preview'
   | 'main';
@@ -120,6 +237,14 @@ function AppContent({
   const bootstrap = useBootstrapData(bootstrapEnabled, offlineRuntime);
   const onboardingPersistence = useOnboardingPersistence();
   const workoutCompletion = useWorkoutCompletion(offlineRuntime);
+  const nutritionApi = usePocketTrainerApi();
+  const nutritionDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+  }).format(new Date());
+  const nutritionEntriesResource = useFoodEntries(
+    nutritionDate,
+    Boolean(auth.session),
+  );
   const [flow, setFlow] = useState<Flow>(initialFlow ?? 'welcome');
   const [activeTab, setActiveTab] = useState<AppTab>(initialTab);
   const [accepted, setAccepted] = useState(false);
@@ -140,9 +265,25 @@ function AppContent({
   const [authoritativeResult, setAuthoritativeResult] =
     useState<AuthoritativeWorkoutResult>();
   const [resultError, setResultError] = useState<string>();
+  const [nutritionFacts, setNutritionFacts] = useState<NutritionFacts | null>(
+    null,
+  );
+  const [nutritionFoodId, setNutritionFoodId] = useState<string | null>(null);
+  const [nutritionEntries, setNutritionEntries] = useState<
+    NutritionDiaryEntry[]
+  >([]);
+  const [nutritionSyncError, setNutritionSyncError] = useState<string | null>(
+    null,
+  );
   const onboardingAttemptRef = useRef<PersistOnboardingInput | null>(null);
   const startupRoutingAppliedRef = useRef(Boolean(initialFlow));
   const workoutAttemptRef = useRef<CompleteWorkoutFlowInput | null>(null);
+  useEffect(() => {
+    const entries = nutritionEntriesResource.data
+      ?.map(toNutritionDiaryEntry)
+      .filter((entry): entry is NutritionDiaryEntry => Boolean(entry));
+    if (entries) setNutritionEntries(entries);
+  }, [nutritionEntriesResource.data]);
   const courseCatalog = useMemo(() => {
     if (!bootstrap.data) return null;
     try {
@@ -450,6 +591,135 @@ function AppContent({
       throw error;
     }
   };
+  const openNutritionScan = () => {
+    setNutritionSyncError(null);
+    setNutritionFacts(null);
+    setNutritionFoodId(null);
+    setFlow('nutrition-scan');
+  };
+  const submitNutritionBarcode = async (barcode: string) => {
+    try {
+      const candidate = await nutritionApi.lookupBarcode(barcode);
+      const facts = toNutritionFacts(candidate, barcode);
+      if (!facts) {
+        Alert.alert(
+          'Data tidak ditemukan',
+          'Barcode belum memiliki data nutrisi. Gunakan tab label kemasan untuk memasukkan angka yang terlihat.',
+        );
+        return;
+      }
+      setNutritionFoodId(candidate?.persisted ? candidate.id ?? null : null);
+      setNutritionFacts(facts);
+      setFlow('nutrition-facts');
+    } catch (error) {
+      Alert.alert(
+        'Barcode belum tersedia',
+        error instanceof Error
+          ? error.message
+          : 'Coba masukkan angka dari label kemasan.',
+      );
+    }
+  };
+  const submitNutritionManualLabel = (
+    input: Parameters<typeof createFactsFromManualLabel>[0],
+  ) => {
+    setNutritionFoodId(null);
+    setNutritionFacts(createFactsFromManualLabel(input));
+    setFlow('nutrition-facts');
+  };
+  const confirmNutritionFacts = async (facts: NutritionFacts) => {
+    setNutritionSyncError(null);
+    const localEntryId = `local-${Date.now()}`;
+    const localEntry: NutritionDiaryEntry = {
+      id: localEntryId,
+      mealLabel: 'Camilan',
+      loggedAtLabel: new Date().toLocaleTimeString('id-ID', {
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+      servings: 1,
+      facts,
+      syncStatus: 'waiting-to-sync',
+    };
+    setNutritionEntries(current => [localEntry, ...current]);
+    const hasCompleteNutrition = Object.values(facts.nutrients).every(
+      value => value !== null,
+    );
+    if (!hasCompleteNutrition) {
+      // Keep incomplete label data local to this session; never turn unknowns into zeroes on the server.
+      setNutritionEntries(current =>
+        current.map(entry =>
+          entry.id === localEntryId
+            ? { ...entry, syncStatus: 'session-only' }
+            : entry,
+        ),
+      );
+      setFlow('nutrition-diary');
+      return;
+    }
+    try {
+      let foodId = nutritionFoodId;
+      if (!foodId) {
+        const customFood = await nutritionApi.createCustomFood(
+          {
+            name: facts.foodName,
+            serving: { amount: 1, unit: 'serving', label: facts.servingLabel },
+            nutritionPerServing: {
+              caloriesKcal: facts.nutrients.calories ?? 0,
+              proteinG: facts.nutrients.proteinGrams ?? 0,
+              carbohydrateG: facts.nutrients.carbohydrateGrams ?? 0,
+              fatG: facts.nutrients.fatGrams ?? 0,
+              fiberG: facts.nutrients.fiberGrams ?? 0,
+              sugarG: facts.nutrients.sugarGrams ?? 0,
+              sodiumMg: facts.nutrients.sodiumMilligrams ?? 0,
+            },
+          },
+          { idempotencyKey: `nutrition-food-${Date.now()}` },
+        );
+        foodId = customFood.id;
+      }
+      await nutritionApi.createFoodEntry(
+        {
+          foodItemId: foodId,
+          mealType: 'snack',
+          consumedAt: new Date().toISOString(),
+          portionAmount: 1,
+          portionUnit: 'serving',
+          calories: facts.nutrients.calories ?? 0,
+          proteinGrams: facts.nutrients.proteinGrams ?? undefined,
+          carbohydrateGrams: facts.nutrients.carbohydrateGrams ?? undefined,
+          fatGrams: facts.nutrients.fatGrams ?? undefined,
+          fiberGrams: facts.nutrients.fiberGrams ?? undefined,
+          sodiumMilligrams: facts.nutrients.sodiumMilligrams ?? undefined,
+          source: facts.status === 'verified' ? 'barcode' : 'custom',
+          confidence: facts.status === 'verified' ? 1 : 0.5,
+        },
+        { idempotencyKey: `nutrition-entry-${Date.now()}` },
+      );
+      setNutritionEntries(current =>
+        current.map(entry =>
+          entry.id === localEntryId
+            ? { ...entry, syncStatus: 'server-confirmed' }
+            : entry,
+        ),
+      );
+      nutritionEntriesResource.reload();
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Periksa koneksi lalu coba sinkronkan lagi.';
+      setNutritionSyncError(message);
+      setNutritionEntries(current =>
+        current.map(entry =>
+          entry.id === localEntryId
+            ? { ...entry, syncStatus: 'sync-failed' }
+            : entry,
+        ),
+      );
+    }
+    setFlow('nutrition-diary');
+  };
   const mainScreen =
     activeTab === 'home' ? (
       <HomeScreen
@@ -469,6 +739,8 @@ function AppContent({
       <CoachScreen
         onAssessment={openAssessment}
         onWorkout={() => openLesson()}
+        onFoodScan={openNutritionScan}
+        onNutritionDiary={() => setFlow('nutrition-diary')}
       />
     ) : activeTab === 'progress' ? (
       <ProgressScreen
@@ -712,10 +984,43 @@ function AppContent({
         }}
       />
     );
+  else if (flow === 'nutrition-scan')
+    screen = (
+      <ScanFoodScreen
+        onBack={() => setFlow('main')}
+        onOpenDiary={() => setFlow('nutrition-diary')}
+        onSubmitBarcode={barcode =>
+          submitNutritionBarcode(barcode).catch(() => undefined)
+        }
+        onSubmitManualLabel={submitNutritionManualLabel}
+      />
+    );
+  else if (flow === 'nutrition-facts' && nutritionFacts)
+    screen = (
+      <NutritionFactsScreen
+        facts={nutritionFacts}
+        onBack={() => setFlow('nutrition-scan')}
+        onConfirm={confirmNutritionFacts}
+        onEdit={() => setFlow('nutrition-scan')}
+      />
+    );
+  else if (flow === 'nutrition-diary')
+    screen = (
+      <NutritionDiaryScreen
+        entries={nutritionEntries}
+        syncError={nutritionSyncError}
+        onAddFood={openNutritionScan}
+        onBack={() => setFlow('main')}
+      />
+    );
   else
     screen = (
       <>
-        <View style={styles.content}>{mainScreen}</View>
+        <View style={styles.content}>
+          <TabSceneTransition activeTab={activeTab}>
+            {mainScreen}
+          </TabSceneTransition>
+        </View>
         <BottomNav activeTab={activeTab} onChange={setActiveTab} />
       </>
     );

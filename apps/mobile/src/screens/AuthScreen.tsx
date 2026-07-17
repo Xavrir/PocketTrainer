@@ -15,12 +15,19 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { colors, radius, spacing, type } from '../design/tokens';
 import { useAuth } from '../auth/AuthProvider';
 
-type BusyAction = 'google' | 'send-email-link';
+type BusyAction = 'google' | 'send-email-otp' | 'verify-email-otp';
 
 export function AuthScreen() {
-  const { callbackError, clearCallbackError, sendEmailLink, signInWithGoogle } =
-    useAuth();
+  const {
+    callbackError,
+    clearCallbackError,
+    sendEmailOtp,
+    signInWithGoogle,
+    verifyEmailOtp,
+  } = useAuth();
   const [email, setEmail] = useState('');
+  const [otp, setOtp] = useState('');
+  const [otpRequested, setOtpRequested] = useState(false);
   const [busy, setBusy] = useState<BusyAction>();
   const [message, setMessage] = useState<string>();
   const [isError, setIsError] = useState(false);
@@ -52,27 +59,56 @@ export function AuthScreen() {
     }
   };
 
-  const requestEmailLink = async () => {
+  const updateEmail = (value: string) => {
+    setEmail(value);
+    if (otpRequested) {
+      setOtpRequested(false);
+      setOtp('');
+    }
+  };
+
+  const requestEmailOtp = async () => {
     const normalizedEmail = email.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       showResult('Masukkan alamat email yang valid.');
       return;
     }
-    setBusy('send-email-link');
+    setBusy('send-email-otp');
     showResult();
     try {
-      const result = await sendEmailLink(normalizedEmail);
+      const result = await sendEmailOtp(normalizedEmail);
       if (result.error) {
         showResult(result.error);
         return;
       }
-      if (result.emailLinkSent) {
+      if (result.emailOtpSent) {
         setEmail(normalizedEmail);
+        setOtp('');
+        setOtpRequested(true);
         setIsError(false);
-        setMessage(
-          'Tautan masuk sudah dikirim. Buka tautan dari email di perangkat ini.',
-        );
+        setMessage('Kode OTP 6 digit sudah dikirim ke emailmu.');
       }
+    } finally {
+      setBusy(undefined);
+    }
+  };
+
+  const verifyOtp = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!/^\d{6}$/.test(otp)) {
+      showResult('Masukkan kode OTP 6 digit.');
+      return;
+    }
+    setBusy('verify-email-otp');
+    showResult();
+    try {
+      const result = await verifyEmailOtp(normalizedEmail, otp);
+      if (result.error) {
+        showResult(result.error);
+        return;
+      }
+      setIsError(false);
+      setMessage('Kode diterima. Menyiapkan akunmu…');
     } finally {
       setBusy(undefined);
     }
@@ -133,13 +169,37 @@ export function AuthScreen() {
               autoCorrect={false}
               editable={!busy}
               keyboardType="email-address"
-              onChangeText={setEmail}
+              onChangeText={updateEmail}
               placeholder="nama@email.com"
               placeholderTextColor={colors.secondary}
               style={styles.input}
               value={email}
             />
           </View>
+          {otpRequested ? (
+            <>
+              <Text style={[styles.label, styles.otpLabel]}>Kode OTP</Text>
+              <View style={styles.inputWrap}>
+                <Icon color={colors.secondary} name="lock" size={20} />
+                <TextInput
+                  accessibilityLabel="Kode OTP"
+                  autoCapitalize="none"
+                  autoComplete="one-time-code"
+                  autoCorrect={false}
+                  editable={!busy}
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  onChangeText={value =>
+                    setOtp(value.replace(/\D/g, '').slice(0, 6))
+                  }
+                  placeholder="123456"
+                  placeholderTextColor={colors.secondary}
+                  style={styles.input}
+                  value={otp}
+                />
+              </View>
+            </>
+          ) : null}
           {message ? (
             <View style={[styles.message, isError && styles.messageError]}>
               <Icon
@@ -158,15 +218,31 @@ export function AuthScreen() {
           <PrimaryButton
             disabled={Boolean(busy)}
             label={
-              busy === 'send-email-link'
-                ? 'Mengirim tautan…'
-                : 'Kirim tautan masuk'
+              busy === 'send-email-otp'
+                ? 'Mengirim kode…'
+                : busy === 'verify-email-otp'
+                ? 'Memverifikasi…'
+                : otpRequested
+                ? 'Verifikasi kode'
+                : 'Kirim kode OTP'
             }
-            onPress={requestEmailLink}
+            onPress={otpRequested ? verifyOtp : requestEmailOtp}
           />
+          {otpRequested ? (
+            <Pressable
+              accessibilityLabel="Kirim ulang kode OTP"
+              accessibilityRole="button"
+              accessibilityState={{ disabled: Boolean(busy) }}
+              disabled={Boolean(busy)}
+              onPress={requestEmailOtp}
+              style={styles.resendButton}
+            >
+              <Text style={styles.resendText}>Kirim ulang kode OTP</Text>
+            </Pressable>
+          ) : null}
           <Text style={styles.emailHint}>
-            Supabase akan mengirim tautan sekali pakai, bukan kode angka. Buka
-            tautan di perangkat ini untuk masuk.
+            Supabase akan mengirim kode sekali pakai. Masukkan 6 digit kode dari
+            email untuk melanjutkan.
           </Text>
         </View>
         <View style={styles.privacy}>
@@ -284,6 +360,7 @@ const styles = StyleSheet.create({
     minHeight: 52,
     paddingVertical: 0,
   },
+  otpLabel: { marginTop: spacing.md },
   message: {
     alignItems: 'flex-start',
     backgroundColor: 'rgba(102,221,177,.08)',
@@ -302,6 +379,13 @@ const styles = StyleSheet.create({
     color: colors.secondary,
     marginTop: spacing.sm,
   },
+  resendButton: {
+    alignItems: 'center',
+    minHeight: 48,
+    justifyContent: 'center',
+    marginTop: spacing.xs,
+  },
+  resendText: { ...type.support, color: colors.coral, fontWeight: '700' },
   privacy: {
     alignItems: 'flex-start',
     flexDirection: 'row',

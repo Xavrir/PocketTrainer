@@ -15,6 +15,7 @@ import { ProgressController } from './controllers/progress.controller';
 import { PrivacyController } from './controllers/privacy.controller';
 import { SyncController } from './controllers/sync.controller';
 import { WorkoutController } from './controllers/workout.controller';
+import { NutritionModule } from './nutrition/nutrition.module';
 import { OutboxProcessorService } from './outbox/outbox-processor.service';
 import { InMemoryPocketTrainerRepository } from './repositories/in-memory.repository';
 import { PocketTrainerRepository } from './repositories/pocket-trainer.repository';
@@ -35,6 +36,7 @@ import { PostgresPocketTrainerRepository } from './repositories/postgres.reposit
     },
     { provide: APP_GUARD, useClass: AuthGuard },
   ],
+  imports: [NutritionModule],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void { consumer.apply(RequestIdMiddleware).forRoutes('*'); }
