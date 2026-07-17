@@ -50,12 +50,31 @@ export type FoodCandidateReviewResponse = Readonly<{
 
 export type NutritionDiaryEntry = Readonly<{
   id: string;
+  mealType?: NutritionMealType;
   mealLabel: string;
   loggedAtLabel: string;
   servings: number;
   facts: NutritionFacts;
-  syncStatus?: 'server-confirmed' | 'waiting-to-sync' | 'session-only' | 'sync-failed';
+  syncStatus?: NutritionSyncStatus;
 }>;
+
+export type NutritionMealType =
+  | 'breakfast'
+  | 'lunch'
+  | 'dinner'
+  | 'snack'
+  | 'other';
+
+export type NutritionDiaryEntryUpdate = Readonly<{
+  mealType: NutritionMealType;
+  servings: number;
+}>;
+
+export type NutritionSyncStatus =
+  | 'server-confirmed'
+  | 'waiting-to-sync'
+  | 'session-only'
+  | 'sync-failed';
 
 export type NutrientKey = keyof NutritionNutrients;
 
@@ -68,6 +87,11 @@ export type DailyNutrientTotal = Readonly<{
 export type DailyNutritionTotals = Readonly<
   Record<NutrientKey, DailyNutrientTotal>
 >;
+
+export type NutritionDiarySummary = Readonly<{
+  totals: DailyNutritionTotals;
+  status: NutritionSyncStatus;
+}>;
 
 export const emptyNutritionNutrients: NutritionNutrients = {
   calories: null,
