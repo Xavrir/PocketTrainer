@@ -53,18 +53,21 @@ import {
 } from './src/data';
 import type {
   CompleteWorkoutFlowInput,
+  DailyNutrition,
   PersistOnboardingInput,
 } from './src/api';
 import { deleteAccount } from './src/api';
 import { useOfflineRuntime } from './src/offline';
 import { createWorkoutMeasurement } from './src/data/workoutMeasurement';
-import { useFoodEntries, usePocketTrainerApi } from './src/data';
+import { useDailyNutrition, usePocketTrainerApi } from './src/data';
 import { NutritionDiaryScreen } from './src/nutrition/screens/NutritionDiaryScreen';
 import { NutritionFactsScreen } from './src/nutrition/screens/NutritionFactsScreen';
 import { ScanFoodScreen } from './src/nutrition/screens/ScanFoodScreen';
 import {
   createFactsFromManualLabel,
+  type NutritionDiaryEntryUpdate,
   type NutritionDiaryEntry,
+  type NutritionDiarySummary,
   type NutritionFacts,
 } from './src/nutrition/components/types';
 
@@ -175,6 +178,14 @@ function toNutritionDiaryEntry(value: unknown): NutritionDiaryEntry | null {
     typeof raw.consumedAt === 'string' ? new Date(raw.consumedAt) : null;
   return {
     id: raw.id,
+    mealType:
+      raw.mealType === 'breakfast' ||
+      raw.mealType === 'lunch' ||
+      raw.mealType === 'dinner' ||
+      raw.mealType === 'snack' ||
+      raw.mealType === 'other'
+        ? raw.mealType
+        : undefined,
     mealLabel: typeof raw.mealType === 'string' ? raw.mealType : 'Makanan',
     loggedAtLabel:
       consumedAt && !Number.isNaN(consumedAt.valueOf())
@@ -191,6 +202,40 @@ function toNutritionDiaryEntry(value: unknown): NutritionDiaryEntry | null {
         : 1,
     facts,
     syncStatus: 'server-confirmed',
+  };
+}
+
+function toNutritionDiarySummary(
+  daily: DailyNutrition | null,
+): NutritionDiarySummary | null {
+  if (!daily) return null;
+  const total = (
+    totalKey: keyof DailyNutrition['totals'],
+    entryKey: keyof DailyNutrition['entries'][number],
+  ) => {
+    const unknownEntryCount = daily.entries.filter(
+      entry => toNumber(entry[entryKey]) === null,
+    ).length;
+    return {
+      complete: unknownEntryCount === 0,
+      unknownEntryCount,
+      value: toNumber(daily.totals[totalKey]) ?? 0,
+    };
+  };
+  return {
+    status: 'server-confirmed',
+    totals: {
+      calories: total('calories', 'calories'),
+      proteinGrams: total('proteinGrams', 'proteinGrams'),
+      carbohydrateGrams: total(
+        'carbohydrateGrams',
+        'carbohydrateGrams',
+      ),
+      fatGrams: total('fatGrams', 'fatGrams'),
+      fiberGrams: total('fiberGrams', 'fiberGrams'),
+      sodiumMilligrams: total('sodiumMilligrams', 'sodiumMilligrams'),
+      sugarGrams: total('sugarGrams', 'sugarGrams'),
+    },
   };
 }
 
@@ -241,7 +286,7 @@ function AppContent({
   const nutritionDate = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Jakarta',
   }).format(new Date());
-  const nutritionEntriesResource = useFoodEntries(
+  const nutritionDailyResource = useDailyNutrition(
     nutritionDate,
     Boolean(auth.session),
   );
@@ -279,11 +324,11 @@ function AppContent({
   const startupRoutingAppliedRef = useRef(Boolean(initialFlow));
   const workoutAttemptRef = useRef<CompleteWorkoutFlowInput | null>(null);
   useEffect(() => {
-    const entries = nutritionEntriesResource.data
-      ?.map(toNutritionDiaryEntry)
+    const entries = nutritionDailyResource.data?.entries
+      .map(toNutritionDiaryEntry)
       .filter((entry): entry is NutritionDiaryEntry => Boolean(entry));
     if (entries) setNutritionEntries(entries);
-  }, [nutritionEntriesResource.data]);
+  }, [nutritionDailyResource.data]);
   const courseCatalog = useMemo(() => {
     if (!bootstrap.data) return null;
     try {
@@ -703,7 +748,7 @@ function AppContent({
             : entry,
         ),
       );
-      nutritionEntriesResource.reload();
+      nutritionDailyResource.reload();
     } catch (error) {
       const message =
         error instanceof Error
@@ -719,6 +764,52 @@ function AppContent({
       );
     }
     setFlow('nutrition-diary');
+  };
+  const updateNutritionEntry = async (
+    entryId: string,
+    update: NutritionDiaryEntryUpdate,
+  ) => {
+    setNutritionSyncError(null);
+    setNutritionEntries(current =>
+      current.map(entry =>
+        entry.id === entryId
+          ? { ...entry, syncStatus: 'waiting-to-sync' }
+          : entry,
+      ),
+    );
+    try {
+      const updated = await nutritionApi.updateFoodEntry(
+        entryId,
+        {
+          mealType: update.mealType,
+          portionAmount: update.servings,
+        },
+        { idempotencyKey: `nutrition-update-${entryId}-${Date.now()}` },
+      );
+      const mapped = toNutritionDiaryEntry(updated);
+      if (!mapped) throw new Error('Server mengembalikan catatan yang tidak valid.');
+      setNutritionEntries(current =>
+        current.map(entry => (entry.id === entryId ? mapped : entry)),
+      );
+      nutritionDailyResource.reload();
+    } catch (error) {
+      setNutritionEntries(current =>
+        current.map(entry =>
+          entry.id === entryId ? { ...entry, syncStatus: 'sync-failed' } : entry,
+        ),
+      );
+      throw error;
+    }
+  };
+  const deleteNutritionEntry = async (entryId: string) => {
+    setNutritionSyncError(null);
+    await nutritionApi.deleteFoodEntry(entryId, {
+      idempotencyKey: `nutrition-delete-${entryId}-${Date.now()}`,
+    });
+    setNutritionEntries(current =>
+      current.filter(entry => entry.id !== entryId),
+    );
+    nutritionDailyResource.reload();
   };
   const mainScreen =
     activeTab === 'home' ? (
@@ -1007,10 +1098,16 @@ function AppContent({
   else if (flow === 'nutrition-diary')
     screen = (
       <NutritionDiaryScreen
+        dailySummary={toNutritionDiarySummary(nutritionDailyResource.data)}
         entries={nutritionEntries}
+        isLoading={nutritionDailyResource.loading}
+        loadError={nutritionDailyResource.error?.message}
         syncError={nutritionSyncError}
         onAddFood={openNutritionScan}
         onBack={() => setFlow('main')}
+        onDeleteEntry={deleteNutritionEntry}
+        onRetry={nutritionDailyResource.reload}
+        onUpdateEntry={updateNutritionEntry}
       />
     );
   else
