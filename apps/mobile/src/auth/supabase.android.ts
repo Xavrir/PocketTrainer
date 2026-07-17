@@ -1,11 +1,8 @@
 import 'react-native-url-polyfill/auto';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import {
-  createClient,
-  SupabaseClient,
-} from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { publicConfig } from '../config/publicConfig';
 import { isSupabasePublicKey, isSupabaseUrl } from './configuration';
+import { secureSessionStorage } from './secureSessionStorage';
 
 let client: SupabaseClient | null = null;
 
@@ -25,7 +22,7 @@ export function getSupabaseClient(): SupabaseClient | null {
           detectSessionInUrl: false,
           flowType: 'pkce',
           persistSession: true,
-          storage: AsyncStorage,
+          storage: secureSessionStorage,
         },
       },
     );

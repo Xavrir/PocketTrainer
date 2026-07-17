@@ -63,12 +63,22 @@ emit `{{ .Token }}` for the shipped secondary UX to remain a numeric OTP flow.
 Google OAuth uses PKCE and returns to `pockettrainer://auth/callback`; the
 email OTP is verified directly in the app. The app processes warm and cold-start
 Google callbacks, accepts only a PKCE authorization code (never raw session
-tokens from a deep link), persists the resulting session in AsyncStorage, tracks
-Supabase auth-state/token-refresh events, refreshes while the app is
+tokens from a deep link), persists the resulting session in Android
+Keystore-backed storage through `react-native-keychain`, tracks Supabase
+auth-state/token-refresh events, refreshes while the app is
 foregrounded, and signs out only the current device session from Profile. A
 release build without Supabase configuration fails closed on a branded
 configuration screen. Only debug/test builds may use
 `POCKETTRAINER_ALLOW_AUTH_BYPASS=true` for local design review.
+
+Existing installs are migrated from the previous AsyncStorage record on first
+successful restore. The app writes the complete session to secure storage and
+confirms that write before deleting the legacy value. If secure storage cannot
+be read, written, or cleared, authentication fails closed; PocketTrainer never
+falls back to plaintext persistence. A failed secure write leaves the legacy
+record untouched so a later fixed build can retry migration without losing the
+session. Storage errors are intentionally generic and never include session
+JSON, access tokens, or refresh tokens.
 
 ## 3. Configure the NestJS API
 
@@ -155,6 +165,9 @@ path on a clean physical Android device:
   treated as secrets and do not grant product-data access by themselves.
 - Access tokens are refreshed by Supabase and sent only in the NestJS
   `Authorization` header. A `401` triggers at most one refresh-and-retry.
+- Android sessions are stored with `react-native-keychain` using AES-GCM and a
+  key protected by Android Keystore. AsyncStorage is read only as a one-time
+  migration source and is removed after a confirmed secure write.
 - NestJS validates signature, issuer, audience, expiry, and asymmetric
   algorithm against the cached project JWKS before mapping `sub` to Azure data.
 - Missing production configuration never grants anonymous access.
