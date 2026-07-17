@@ -35,26 +35,28 @@ it('creates a scored squat summary only after the target is met', () => {
   expect(summary.repetitionSource).toBe('native');
 });
 
-it('recognizes all implemented movements as posture-scored', () => {
+it('recognizes only squat as posture-scored', () => {
+  expect(isPostureScoringSupported('body_squat')).toBe(true);
   expect(
-    ['body_squat', 'incline_push_up', 'warrior_ii', 'tree_pose', 'jumping_jack'].every(
+    ['incline_push_up', 'warrior_ii', 'tree_pose', 'jumping_jack'].some(
       isPostureScoringSupported,
     ),
-  ).toBe(true);
+  ).toBe(false);
   expect(isPostureScoringSupported('unsupported_movement')).toBe(false);
 });
 
-it('scores native tracking for incline push-up instead of treating it as guided practice', () => {
+it('keeps incline push-up guided and unscored even if native form data arrives', () => {
   const summary = createLiveCoachSessionSummary({
     ...BASE_INPUT,
     exerciseKey: 'incline_push_up',
     eligibleFormScores: [100],
   });
 
-  expect(summary.coachingMode).toBe('posture_scored');
-  expect(summary.formScore).toBe(100);
-  expect(summary.progressionEligible).toBe(true);
-  expect(summary.repetitionSource).toBe('native');
+  expect(summary.coachingMode).toBe('guided_practice');
+  expect(summary.formScore).toBeNull();
+  expect(summary.progressionEligible).toBe(false);
+  expect(summary.repetitionSource).toBe('user_confirmed');
+  expect(summary.stopReason).toBe('completed');
 });
 
 it('rejects scoring when tracking confidence is low', () => {
@@ -70,7 +72,7 @@ it('rejects scoring when tracking confidence is low', () => {
   expect(summary.stopReason).toBe('tracking_unavailable');
 });
 
-it('scores a valid native hold summary and makes it progression-eligible', () => {
+it('uses guided timer completion for yoga without a fake form score', () => {
   const summary = createLiveCoachSessionSummary({
     ...BASE_INPUT,
     exerciseKey: 'warrior_ii',
@@ -84,13 +86,14 @@ it('scores a valid native hold summary and makes it progression-eligible', () =>
   expect(summary.targetMet).toBe(true);
   expect(summary.repetitionSource).toBe('none');
   expect(summary.activeDurationMs).toBe(20_000);
-  expect(summary.durationSource).toBe('tracking_eligible');
-  expect(summary.formScore).toBe(90);
-  expect(summary.coachingMode).toBe('posture_scored');
-  expect(summary.progressionEligible).toBe(true);
+  expect(summary.durationSource).toBe('session_timer');
+  expect(summary.formScore).toBeNull();
+  expect(summary.coachingMode).toBe('guided_practice');
+  expect(summary.progressionEligible).toBe(false);
+  expect(summary.stopReason).toBe('completed');
 });
 
-it('keeps low-confidence holds unscored and unavailable for progression', () => {
+it('keeps low-confidence guided holds unscored without misreporting tracking failure', () => {
   const summary = createLiveCoachSessionSummary({
     ...BASE_INPUT,
     exerciseKey: 'tree_pose',
@@ -106,7 +109,21 @@ it('keeps low-confidence holds unscored and unavailable for progression', () => 
   expect(summary.confidenceEligible).toBe(false);
   expect(summary.formScore).toBeNull();
   expect(summary.progressionEligible).toBe(false);
-  expect(summary.stopReason).toBe('tracking_unavailable');
+  expect(summary.stopReason).toBe('completed');
+  expect(summary.qualityState).toBe('guided_practice');
+});
+
+it('fails unknown movements closed as guided and unscored', () => {
+  const summary = createLiveCoachSessionSummary({
+    ...BASE_INPUT,
+    exerciseKey: 'unknown_movement',
+    eligibleFormScores: [100],
+  });
+
+  expect(summary.coachingMode).toBe('guided_practice');
+  expect(summary.formScore).toBeNull();
+  expect(summary.progressionEligible).toBe(false);
+  expect(summary.repetitionSource).toBe('user_confirmed');
 });
 
 it('keeps progression suppressed until pain is assessed and after pain', () => {

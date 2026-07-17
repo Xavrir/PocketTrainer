@@ -36,6 +36,11 @@ internal class PoseOverlayView(context: Context) : View(context) {
         invalidate()
     }
 
+    fun clearLandmarks() {
+        landmarks = emptyList()
+        invalidate()
+    }
+
     fun clear() {
         frame = null
         landmarks = emptyList()

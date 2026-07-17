@@ -175,7 +175,7 @@ describe('adaptCourseCatalog', () => {
     );
     expect(lessons.find(item => item.id === 'pushup')?.coaching).toMatchObject({
       mode: 'repetition',
-      scoringSupported: true,
+      scoringSupported: false,
       playable: true,
     });
     expect(
@@ -192,26 +192,28 @@ describe('adaptCourseCatalog', () => {
     expect(lessons.find(item => item.id === 'warrior')?.coaching.mode).toBe(
       'hold',
     );
-    expect(lessons.find(item => item.id === 'warrior')?.coaching.scoringSupported).toBe(
-      true,
-    );
+    expect(
+      lessons.find(item => item.id === 'warrior')?.coaching.scoringSupported,
+    ).toBe(false);
   });
 
-  it('mirrors the native supported movement set and keeps unknown definitions guided', () => {
-    const supported = [
+  it('advertises only validated squat scoring and keeps other definitions guided', () => {
+    const catalogMovements = [
       ['body_squat', 'repetition'],
       ['incline_push_up', 'repetition'],
       ['warrior_ii', 'hold'],
       ['tree_pose', 'hold'],
       ['jumping_jack', 'repetition'],
     ] as const;
-    const exercises = supported.map(([exerciseKey, mode]) => ({
+    const exercises = catalogMovements.map(([exerciseKey, mode]) => ({
       id: exerciseKey,
       exerciseKey,
       mode,
     }));
     const lessons = [
-      ...supported.map(([exerciseKey]) => lesson(exerciseKey, exerciseKey)),
+      ...catalogMovements.map(([exerciseKey]) =>
+        lesson(exerciseKey, exerciseKey),
+      ),
       lesson('unsupported', 'unsupported_pose'),
       lesson('missing-definition', 'missing-definition'),
     ];
@@ -249,10 +251,14 @@ describe('adaptCourseCatalog', () => {
     });
 
     const adapted = catalog.tracks[0]!.units[0]!.lessons;
-    for (const [exerciseKey] of supported) {
-      expect(adapted.find(item => item.id === exerciseKey)?.coaching.scoringSupported).toBe(
-        true,
-      );
+    expect(
+      adapted.find(item => item.id === 'body_squat')?.coaching.scoringSupported,
+    ).toBe(true);
+    for (const [exerciseKey] of catalogMovements.slice(1)) {
+      expect(
+        adapted.find(item => item.id === exerciseKey)?.coaching
+          .scoringSupported,
+      ).toBe(false);
     }
     expect(
       adapted.find(item => item.id === 'unsupported')?.coaching,

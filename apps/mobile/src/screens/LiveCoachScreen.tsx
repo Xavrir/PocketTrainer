@@ -278,9 +278,12 @@ export function LiveCoachScreen({
     [addFeedback, closeActiveSegments, postureScored, readTrackedDuration],
   );
 
-  const durationProgressMs = isNativePoseCameraAvailable
-    ? Math.max(trackedDurationMs, nativeValidHoldDurationMs.current)
-    : elapsedTimeMs;
+  const durationProgressMs = resolveActiveDurationMs({
+    postureScored,
+    elapsedTimeMs,
+    trackedDurationMs,
+    nativeValidHoldDurationMs: nativeValidHoldDurationMs.current,
+  });
   const validTarget = Number.isFinite(targetValue) && targetValue > 0;
   const targetMet =
     validTarget &&
@@ -318,8 +321,7 @@ export function LiveCoachScreen({
       targetType !== 'repetitions' ||
       pausedRef.current ||
       safetyStopped ||
-      painState === 'reported' ||
-      (isNativePoseCameraAvailable && confidenceRef.current !== 'good')
+      painState === 'reported'
     ) {
       return;
     }
@@ -330,18 +332,19 @@ export function LiveCoachScreen({
   const buildSummary = useCallback(
     (requestedStopReason: 'completed' | 'user_stopped') => {
       const completedAtMs = Date.now();
-      const activeDurationMs = isNativePoseCameraAvailable
-        ? Math.max(
-            readTrackedDuration(completedAtMs),
-            nativeValidHoldDurationMs.current,
-          )
-        : readElapsedTime(completedAtMs);
+      const elapsedDurationMs = readElapsedTime(completedAtMs);
+      const activeDurationMs = resolveActiveDurationMs({
+        postureScored,
+        elapsedTimeMs: elapsedDurationMs,
+        trackedDurationMs: readTrackedDuration(completedAtMs),
+        nativeValidHoldDurationMs: nativeValidHoldDurationMs.current,
+      });
       return createLiveCoachSessionSummary({
         sessionId,
         exerciseKey,
         startedAtMs: startedAtMs.current,
         completedAtMs,
-        elapsedTimeMs: readElapsedTime(completedAtMs),
+        elapsedTimeMs: elapsedDurationMs,
         targetType,
         targetValue,
         repetitionCount: repsRef.current,
@@ -360,6 +363,7 @@ export function LiveCoachScreen({
     [
       exerciseKey,
       painState,
+      postureScored,
       readElapsedTime,
       readTrackedDuration,
       safetyStopped,
@@ -386,11 +390,7 @@ export function LiveCoachScreen({
       ? String(targetValue).padStart(2, '0')
       : formatClock(targetValue);
   const guidedRepDisabled =
-    paused ||
-    targetMet ||
-    safetyStopped ||
-    painState === 'reported' ||
-    (isNativePoseCameraAvailable && confidence !== 'good');
+    paused || targetMet || safetyStopped || painState === 'reported';
 
   return (
     <View style={styles.screen}>
@@ -623,6 +623,17 @@ export function LiveCoachScreen({
       </View>
     </View>
   );
+}
+
+export function resolveActiveDurationMs(input: {
+  postureScored: boolean;
+  elapsedTimeMs: number;
+  trackedDurationMs: number;
+  nativeValidHoldDurationMs: number;
+}): number {
+  return input.postureScored
+    ? Math.max(input.trackedDurationMs, input.nativeValidHoldDurationMs)
+    : input.elapsedTimeMs;
 }
 
 function PreviewSkeleton({

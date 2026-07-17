@@ -145,19 +145,21 @@ internal class OfflineDatabase(
         arrayOf<Any?>(clientSessionId, "$clientSessionId:complete", now, now),
       )
       val payload = JSONObject(payloadJson)
-      val results = payload.optJSONObject("results") ?: payload.optJSONArray("results")
-      if (results != null) {
-        db.execSQL(
-          """
-          INSERT INTO workout_results(client_session_id, results_json, updated_at)
-          VALUES(?, ?, ?)
-          ON CONFLICT(client_session_id) DO UPDATE SET
-            results_json = excluded.results_json,
-            updated_at = excluded.updated_at
-          """.trimIndent(),
-          arrayOf<Any?>(clientSessionId, results.toString(), now),
-        )
-      }
+      val resultState = payload.optJSONObject("results")?.toString()
+        ?: payload.optJSONArray("results")?.let {
+          JSONObject().put("results", it).toString()
+        }
+        ?: JSONObject().put("results", JSONArray()).toString()
+      db.execSQL(
+        """
+        INSERT INTO workout_results(client_session_id, results_json, updated_at)
+        VALUES(?, ?, ?)
+        ON CONFLICT(client_session_id) DO UPDATE SET
+          results_json = excluded.results_json,
+          updated_at = excluded.updated_at
+        """.trimIndent(),
+        arrayOf<Any?>(clientSessionId, resultState, now),
+      )
       db.setTransactionSuccessful()
     } finally {
       db.endTransaction()

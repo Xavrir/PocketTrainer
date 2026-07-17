@@ -28,7 +28,7 @@ Assessment → personalized path → coached lesson → form score → mastery +
 - Authenticated workout submission with idempotent, server-authoritative XP and progression.
 - Progression that requires both account level and demonstrated movement mastery.
 - Explicit confidence and pain gates: uncertain tracking never becomes a low score or an unlock.
-- Supabase email/password identity with persisted sessions, foreground token refresh, and authenticated NestJS requests.
+- Google-first Supabase identity with an email magic-link fallback, persisted sessions, foreground token refresh, and authenticated NestJS requests.
 
 ## Product preview
 
@@ -49,7 +49,7 @@ flowchart LR
   APP <--> POSE[Kotlin + CameraX + MediaPipe]
   APP <--> AUTH[Supabase Auth]
   APP --> EDGE[Cloudflare DNS / CDN]
-  EDGE --> API[NestJS on Azure Container Apps]
+  EDGE --> API[NestJS on Azure App Service]
   API <--> DB[(Azure PostgreSQL)]
   API --> R2[Cloudflare R2]
   APP --> R2
@@ -97,7 +97,13 @@ pnpm mobile:start
 pnpm mobile:android
 ```
 
-Copy `apps/api/.env.example` to `apps/api/.env` for local API configuration and `apps/mobile/.env.example` to `apps/mobile/.env` for the public Supabase URL, publishable key, and API origin. Release builds fail closed when auth is missing; only debug/test builds may enable the explicit bypass. Never commit credentials, Supabase service keys, Azure connection strings, or signing keys. See [Supabase Auth setup](documentation/SUPABASE_AUTH.md).
+Copy `apps/api/.env.example` to `apps/api/.env` for local API configuration and `apps/mobile/.env.example` to `apps/mobile/.env` for the public Supabase URL, publishable key, and API origin. Local Android development explicitly uses `10.0.2.2`; release runtime rejects HTTP, localhost/private-network addresses, and temporary TryCloudflare API URLs. Release builds also fail closed when auth is missing; only debug/test builds may enable the explicit bypass. Never commit credentials, Supabase service keys, Azure connection strings, or signing keys. See [Supabase Auth setup](documentation/SUPABASE_AUTH.md).
+
+## Standalone API deployment
+
+The release-safe origin is NestJS on Azure App Service with Azure PostgreSQL at `https://pockettrainer-api-ae494c.azurewebsites.net`. The Azure-managed HTTPS FQDN remains available without Metro, ADB, or a developer machine. Cloudflare is an optional custom DNS/TLS/WAF layer; Quick Tunnels and laptop-hosted named tunnels are not release architecture.
+
+The API image is pulled from the dedicated Azure Container Registry by managed identity. PostgreSQL uses a separate non-owner runtime role with forced RLS, and its firewall is restricted to the Web App outbound addresses plus the current migration-operator address. Follow the [standalone deployment runbook](documentation/DEPLOYMENT_RUNBOOK.md) and provider notes under `infrastructure/` for acceptance and rollback.
 
 ## Hackathon demo path
 
@@ -114,11 +120,13 @@ See [DEMO.md](documentation/DEMO.md) for the complete judging script.
 
 ## Checkpoints and releases
 
-Development is published as exactly three verifiable hackathon checkpoints:
+The original delivery is preserved as three verifiable hackathon checkpoints:
 
 - `v0.1.0-foundation` — product shell, initial contracts, API skeleton, and repository standards.
 - `v0.1.1-infra` — Azure PostgreSQL/RLS, Supabase identity boundary, and Cloudflare/Azure deployment foundation.
 - `v0.2.0-demo` — reviewed end-to-end experience, native CameraX/MediaPipe loop, safety rules, progression API, and Android demo artifact.
+
+Corrective releases use a new immutable patch tag; they never move one of the three checkpoint tags. `v0.2.1-demo` is the standalone-API/Auth/movement-safety correction.
 
 The complete evidence expected at each checkpoint is in [CHECKPOINTS.md](documentation/CHECKPOINTS.md). Release notes follow [Keep a Changelog](CHANGELOG.md) and Conventional Commits.
 
@@ -128,7 +136,7 @@ PocketTrainer provides general fitness guidance, not medical diagnosis or treatm
 
 ## Project status
 
-This repository is a closed-beta hackathon prototype. The end-to-end product flow, native Android camera/inference path, API, schema, five-movement evaluator foundation, and progression rules are implemented. Hosted Supabase Cloud email/password Auth and the bearer-token API handoff were validated on a physical Samsung SM-A556E. The Android SQLCipher queue is wired and covered by unit/build checks, including same-key recovery after an ambiguous completion, but airplane-mode process-death and reconnect recovery still require an end-to-end device run. Azure/Cloudflare production provisioning, golden-video accuracy targets, broader device performance, privacy export/deletion UX review, Play signing, and qualified fitness approval also remain release gates. “Implemented” means code exists and passes its stated checks; a rendered screen, compiled native module, or schema is not represented as real-world validation.
+This repository is a closed-beta hackathon prototype. The end-to-end product flow, native Android camera/inference path, API, schema, and progression rules are implemented; squat is intentionally the only posture-scored movement. Google-first hosted Supabase Auth reaches the real provider and the API has a live Azure HTTPS/PostgreSQL origin. The Android SQLCipher queue is wired and covered by unit/build and connected instrumentation checks, but full airplane-mode process-death/reconnect recovery still requires an end-to-end run. A clean real-user Google callback, full genuine-squat server completion, golden-video accuracy targets, broader device performance, Play signing, Cloudflare custom DNS, and qualified fitness approval remain release gates. “Implemented” means code exists and passes its stated checks; a rendered screen, compiled native module, or schema is not represented as real-world validation.
 
 ## AI and external-resource disclosure
 

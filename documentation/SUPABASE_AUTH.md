@@ -11,11 +11,20 @@ server/operator-only and are never committed or bundled into Android.
 ## 1. Create the Supabase project
 
 1. Create a project in the Supabase dashboard.
-2. In **Authentication → Providers**, enable Email and Password.
-3. Keep email confirmation enabled for public environments. For local demos,
-   either confirm the test user from the email link or create it in the
-   dashboard.
-4. Use an asymmetric JWT signing key so the API can verify access tokens with
+2. In **Authentication → Providers**, enable Google and Email. PocketTrainer
+   uses passwordless email links; users do not enter an email password.
+3. Create a Google Web OAuth client. Put its client ID and client secret only in
+   the Supabase Google provider settings. Add
+   `https://PROJECT_REF.supabase.co/auth/v1/callback` as the Google client's
+   authorized redirect URI. Never put the Google client secret in the app,
+   repository, Gradle configuration, or mobile environment.
+4. Add `pockettrainer://auth/callback` to Supabase's allowed redirect URLs. The
+   Android manifest accepts only that scheme, host, and exact path.
+5. Keep the hosted email template's `{{ .ConfirmationURL }}` magic link. The
+   mobile app deliberately does not present a numeric OTP field. A numeric code
+   would require an operator-controlled template containing `{{ .Token }}` and
+   a corresponding reviewed client change.
+6. Use an asymmetric JWT signing key so the API can verify access tokens with
    the project JWKS endpoint.
 
 Do not create PocketTrainer product tables in the Supabase project. Never put a
@@ -42,17 +51,26 @@ from the dashboard's client-side **Publishable key** (or legacy **anon key**)
 field. Restart Metro and rebuild Android after changing native environment
 values.
 
-When these values are present, the app gates the product behind the Indonesian
-sign-in/sign-up screen, persists the session with AsyncStorage, refreshes tokens
-while active, and enables sign-out in Profile. A release build without Supabase
-configuration fails closed on a branded configuration screen. Only debug/test
-builds may use `POCKETTRAINER_ALLOW_AUTH_BYPASS=true` for local design review.
+When these values are present, the app gates the product behind an Indonesian
+Google-first sign-in screen. Google OAuth is the primary action. The secondary
+email action calls Supabase `signInWithOtp`, which sends the hosted template's
+one-time magic link. “OTP” is the Supabase API name; PocketTrainer does not claim
+that the hosted email contains a six-digit code. Users must open the email link
+on the same device and app installation that requested it so the stored PKCE
+verifier is available.
 
-Email/password is intentional for this checkpoint: it works with the free
-hosted project without adding an OAuth provider credential or depending on the
-free mailer's restricted numeric-OTP template. Google OAuth and passwordless
-OTP can be added later as separately configured providers; they are not exposed
-as non-functional buttons in this release.
+Mobile code cannot configure or rewrite the hosted Supabase email template.
+That is an operator-side dashboard/Management API setting. The current hosted
+behavior emits `{{ .ConfirmationURL }}`, so the shipped secondary UX remains an
+email link and must not be described as numeric OTP.
+
+Both flows use PKCE and return to `pockettrainer://auth/callback`. The app
+processes warm and cold-start callbacks, persists the resulting session in
+AsyncStorage, tracks Supabase auth-state/token-refresh events, refreshes while
+the app is foregrounded, and signs out only the current device session from
+Profile. A release build without Supabase configuration fails closed on a
+branded configuration screen. Only debug/test builds may use
+`POCKETTRAINER_ALLOW_AUTH_BYPASS=true` for local design review.
 
 ## 3. Configure the NestJS API
 
@@ -103,19 +121,29 @@ failures, and network failures are normalized into explicit client error codes.
 
 ## 5. Verification checklist
 
-The hosted beta has passed the physical-device smoke path: sign in, persist the
-session across an Android reinstall/restart, call local NestJS
-`GET /v1/bootstrap` with the Supabase access token, and render the authenticated
-Home screen. Temporary test identities are removed after validation.
+The automated mobile checks cover callback parsing, a clean-device cold-start
+callback, duplicate warm callbacks, persisted-session restoration races,
+foreground refresh behavior, and local logout. Before release, repeat the full
+path on a clean physical Android device:
 
-- Register a new email and verify that confirmation is required.
-- Sign in, restart the app, and confirm the session is restored.
+- Tap Google first, complete provider login, and confirm the exact Android deep
+  link returns to PocketTrainer without a redirect mismatch.
+- Request an email link and verify the hosted message contains a clickable link,
+  not a numeric-code claim. Open it on the requesting device and confirm login.
+- Restart the app and confirm the persisted session is restored.
 - Call `GET /v1/bootstrap` and confirm the API accepts the bearer token.
 - Alter or expire the token and confirm the API returns `401`.
-- Sign out from Profile and confirm protected screens return to sign-in.
+- Background/foreground the app across token expiry and confirm refresh updates
+  the bearer session.
+- Sign out from Profile and confirm protected screens return to sign-in while
+  other device sessions remain signed in.
+- Test cancelled, expired, malformed, and replayed callback links; none should
+  grant access or leave the startup screen indefinitely loading.
 - Inspect the app bundle for accidental server-only keys and inspect logs for
-  access tokens, refresh tokens, passwords, or authorization headers. The public
-  publishable/anon project key is expected to be present in the app bundle.
+  Google client secrets, service-role keys, access tokens, refresh tokens, or
+  authorization headers. The public publishable/anon project key is expected in
+  the bundle. OAuth client IDs are public identifiers, but the Google client
+  secret must remain only in provider-side configuration.
 
 ## Security boundary
 
@@ -127,9 +155,9 @@ Home screen. Temporary test identities are removed after validation.
 - NestJS validates signature, issuer, audience, expiry, and asymmetric
   algorithm against the cached project JWKS before mapping `sub` to Azure data.
 - Missing production configuration never grants anonymous access.
-- Supabase rate limits and email confirmation remain enabled; PocketTrainer
-  never handles or stores password hashes itself.
+- Supabase rate limits remain enabled. PocketTrainer never receives a Google
+  client secret and never handles or stores user password hashes.
 - The client does not log credentials, sessions, request headers, or response
   bodies. User access and refresh tokens remain sensitive runtime credentials.
 
-Official references: [React Native Auth quickstart](https://supabase.com/docs/guides/auth/quickstarts/react-native), [API key types](https://supabase.com/docs/guides/getting-started/api-keys), [JWT signing keys](https://supabase.com/docs/guides/auth/signing-keys), and [JWT claims](https://supabase.com/docs/guides/auth/jwt-fields).
+Official references: [React Native Auth quickstart](https://supabase.com/docs/guides/auth/quickstarts/react-native), [native mobile deep linking](https://supabase.com/docs/guides/auth/native-mobile-deep-linking), [passwordless email login](https://supabase.com/docs/guides/auth/auth-email-passwordless), [Google login](https://supabase.com/docs/guides/auth/social-login/auth-google), [API key types](https://supabase.com/docs/guides/getting-started/api-keys), [JWT signing keys](https://supabase.com/docs/guides/auth/signing-keys), and [JWT claims](https://supabase.com/docs/guides/auth/jwt-fields).

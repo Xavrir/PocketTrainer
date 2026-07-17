@@ -96,14 +96,24 @@ describe('authoritative workout policy', () => {
     expect(validateWorkoutResults(squat, [result({ poseModelVersion: 'unknown-model' })])?.code).toBe('WORKOUT_RESULT_VERSION_MISMATCH');
   });
 
-  it('accepts native tracking/form scores and keeps unknown movements unsupported', () => {
-    for (const canonical of [squat, pushup, warrior, tree]) {
-      expect(validateWorkoutResults(canonical, [resultFor(canonical)])).toBeNull();
-      expect(evaluateWorkoutResults(canonical, [resultFor(canonical)], { painReported: false, perceivedDifficulty: 5 })).toMatchObject({
-        progressionSuppressed: false,
+  it('accepts posture scoring only for squat', () => {
+    expect(validateWorkoutResults(squat, [resultFor(squat)])).toBeNull();
+    expect(evaluateWorkoutResults(squat, [resultFor(squat)], { painReported: false, perceivedDifficulty: 5 })).toMatchObject({
+      progressionSuppressed: false,
+      targetMet: true,
+    });
+
+    for (const canonical of [pushup, warrior, tree]) {
+      expect(validateWorkoutResults(canonical, [resultFor(canonical)])?.code).toBe('WORKOUT_TRACKING_UNSUPPORTED');
+      const guidedResult = resultFor(canonical, { trackingEligible: false, formScore: undefined });
+      expect(validateWorkoutResults(canonical, [guidedResult])).toBeNull();
+      expect(evaluateWorkoutResults(canonical, [guidedResult], { painReported: false, perceivedDifficulty: 5 })).toMatchObject({
+        progressionSuppressed: true,
+        averageForm: null,
         targetMet: true,
       });
     }
+
     expect(validateWorkoutResults(unknown, [resultFor(unknown)])?.code).toBe('WORKOUT_TRACKING_UNSUPPORTED');
     expect(validateWorkoutResults(unknown, [resultFor(unknown, { trackingEligible: false, formScore: undefined })])).toBeNull();
     expect(evaluateWorkoutResults(unknown, [resultFor(unknown, { trackingEligible: false, formScore: undefined })], { painReported: false, perceivedDifficulty: 5 })).toMatchObject({

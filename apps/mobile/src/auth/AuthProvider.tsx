@@ -7,14 +7,15 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import { AppState, Platform } from 'react-native';
+import { AppState, Linking, Platform } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 import { getSupabaseClient, isSupabaseConfigured } from './supabase';
 import { publicConfig } from '../config/publicConfig';
+import { AUTH_REDIRECT_URL, parseAuthCallbackUrl } from './authCallback';
 
 export type AuthResult = {
   error?: string;
-  requiresEmailConfirmation?: boolean;
+  emailLinkSent?: boolean;
 };
 
 export type AuthContextValue = {
@@ -22,31 +23,64 @@ export type AuthContextValue = {
   configured: boolean;
   loading: boolean;
   session: Session | null;
-  signIn: (email: string, password: string) => Promise<AuthResult>;
+  callbackError?: string;
+  clearCallbackError: () => void;
+  sendEmailLink: (email: string) => Promise<AuthResult>;
+  signInWithGoogle: () => Promise<AuthResult>;
   signOut: () => Promise<void>;
-  signUp: (email: string, password: string) => Promise<AuthResult>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 function messageFor(error: { message: string }): string {
   const message = error.message.toLowerCase();
-  if (message.includes('invalid login credentials')) {
-    return 'Email atau kata sandi tidak cocok.';
+  if (message.includes('provider is not enabled')) {
+    return 'Login Google belum diaktifkan pada proyek Supabase.';
   }
-  if (message.includes('email not confirmed')) {
-    return 'Konfirmasi emailmu terlebih dahulu.';
+  if (
+    message.includes('token has expired') ||
+    message.includes('token is expired') ||
+    message.includes('invalid token') ||
+    message.includes('code verifier')
+  ) {
+    return 'Tautan login tidak valid atau sudah kedaluwarsa. Minta tautan baru.';
   }
-  if (message.includes('password')) {
-    return 'Kata sandi harus memiliki minimal 8 karakter.';
+  if (message.includes('access_denied')) return 'Login dibatalkan.';
+  if (message.includes('rate limit')) {
+    return 'Terlalu banyak percobaan. Tunggu sebentar lalu coba lagi.';
   }
   if (message.includes('email')) return 'Masukkan alamat email yang valid.';
   return 'Autentikasi belum berhasil. Coba lagi.';
 }
 
+async function sessionFromCallback(url: string): Promise<Session | null> {
+  const callback = parseAuthCallbackUrl(url);
+  if (callback.kind === 'none') return null;
+  if (callback.kind === 'error') throw new Error(callback.message);
+
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase Auth belum dikonfigurasi.');
+
+  if (callback.kind === 'pkce') {
+    const { data, error } = await client.auth.exchangeCodeForSession(
+      callback.code,
+    );
+    if (error) throw error;
+    return data.session;
+  }
+
+  const { data, error } = await client.auth.setSession({
+    access_token: callback.accessToken,
+    refresh_token: callback.refreshToken,
+  });
+  if (error) throw error;
+  return data.session;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(isSupabaseConfigured);
   const [session, setSession] = useState<Session | null>(null);
+  const [callbackError, setCallbackError] = useState<string>();
 
   useEffect(() => {
     const client = getSupabaseClient();
@@ -56,30 +90,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     let active = true;
     let observedAuthStateChanges = 0;
+    const completedAuthUrls = new Set<string>();
+    const authUrlTasks = new Map<
+      string,
+      Promise<'completed' | 'failed' | 'ignored'>
+    >();
     const { data } = client.auth.onAuthStateChange((_event, nextSession) => {
       observedAuthStateChanges += 1;
       if (!active) return;
       setSession(nextSession);
-      setLoading(false);
     });
-
-    const stateChangesBeforeRestore = observedAuthStateChanges;
-    client.auth
-      .getSession()
-      .then(({ data: restored, error }) => {
-        if (!active) return;
-        if (!error && observedAuthStateChanges === stateChangesBeforeRestore) {
-          setSession(restored.session);
-        }
-      })
-      .catch(() => {
-        if (active && observedAuthStateChanges === stateChangesBeforeRestore) {
-          setSession(null);
-        }
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
 
     const updateAutoRefresh = (state: string) => {
       if (state === 'active') client.auth.startAutoRefresh();
@@ -93,26 +113,131 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           });
     if (Platform.OS !== 'web') updateAutoRefresh(AppState.currentState);
 
+    const handleUrl = (
+      url: string,
+    ): Promise<'completed' | 'failed' | 'ignored'> => {
+      if (completedAuthUrls.has(url)) return Promise.resolve('completed');
+      const existingTask = authUrlTasks.get(url);
+      if (existingTask) return existingTask;
+
+      const task = sessionFromCallback(url)
+        .then(nextSession => {
+          if (!nextSession) return 'ignored' as const;
+          completedAuthUrls.add(url);
+          if (!active) return 'completed' as const;
+          setCallbackError(undefined);
+          setSession(nextSession);
+          return 'completed' as const;
+        })
+        .catch(error => {
+          if (!active) return;
+          const authError =
+            error instanceof Error
+              ? messageFor(error)
+              : 'Callback autentikasi tidak dapat diproses.';
+          setCallbackError(authError);
+          return 'failed' as const;
+        })
+        .then(result => result ?? ('failed' as const))
+        .finally(() => {
+          authUrlTasks.delete(url);
+        });
+      authUrlTasks.set(url, task);
+      return task;
+    };
+    const linkingSubscription = Linking.addEventListener('url', event => {
+      handleUrl(event.url).catch(() => undefined);
+    });
+
+    const initialize = async () => {
+      let initialCallback: 'completed' | 'failed' | 'ignored' = 'ignored';
+      try {
+        const initialUrl = await Linking.getInitialURL();
+        if (initialUrl) initialCallback = await handleUrl(initialUrl);
+      } catch {
+        if (active) {
+          setCallbackError('Tautan login awal tidak dapat dibuka.');
+        }
+        initialCallback = 'failed';
+      }
+
+      if (initialCallback !== 'completed') {
+        const stateChangesBeforeRestore = observedAuthStateChanges;
+        try {
+          const { data: restored, error } = await client.auth.getSession();
+          if (error) throw error;
+          if (
+            active &&
+            observedAuthStateChanges === stateChangesBeforeRestore
+          ) {
+            setSession(restored.session);
+          }
+        } catch {
+          if (
+            active &&
+            observedAuthStateChanges === stateChangesBeforeRestore
+          ) {
+            setSession(null);
+          }
+        }
+      }
+
+      if (active) setLoading(false);
+    };
+    initialize().catch(() => {
+      if (!active) return;
+      setCallbackError('Autentikasi awal tidak dapat diproses.');
+      setLoading(false);
+    });
+
     return () => {
       active = false;
       data.subscription.unsubscribe();
       appStateSubscription?.remove();
+      linkingSubscription.remove();
       if (Platform.OS !== 'web') client.auth.stopAutoRefresh();
     };
   }, []);
 
-  const signIn = useCallback(
-    async (email: string, password: string): Promise<AuthResult> => {
+  const signInWithGoogle = useCallback(async (): Promise<AuthResult> => {
+    const client = getSupabaseClient();
+    if (!client) return { error: 'Supabase Auth belum dikonfigurasi.' };
+    setCallbackError(undefined);
+    try {
+      const { data, error } = await client.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: AUTH_REDIRECT_URL,
+          skipBrowserRedirect: true,
+        },
+      });
+      if (error) return { error: messageFor(error) };
+      if (!data.url) return { error: 'URL login Google tidak tersedia.' };
+      await Linking.openURL(data.url);
+      return {};
+    } catch {
+      return {
+        error:
+          'Tidak dapat membuka login Google. Periksa koneksi lalu coba lagi.',
+      };
+    }
+  }, []);
+
+  const sendEmailLink = useCallback(
+    async (email: string): Promise<AuthResult> => {
       const client = getSupabaseClient();
       if (!client) return { error: 'Supabase Auth belum dikonfigurasi.' };
+      setCallbackError(undefined);
       try {
-        const { data, error } = await client.auth.signInWithPassword({
+        const { error } = await client.auth.signInWithOtp({
           email,
-          password,
+          options: {
+            emailRedirectTo: AUTH_REDIRECT_URL,
+            shouldCreateUser: true,
+          },
         });
         if (error) return { error: messageFor(error) };
-        setSession(data.session);
-        return {};
+        return { emailLinkSent: true };
       } catch {
         return {
           error: 'Tidak dapat terhubung. Periksa koneksi lalu coba lagi.',
@@ -122,43 +247,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const signUp = useCallback(
-    async (email: string, password: string): Promise<AuthResult> => {
-      const client = getSupabaseClient();
-      if (!client) return { error: 'Supabase Auth belum dikonfigurasi.' };
-      try {
-        const { data, error } = await client.auth.signUp({ email, password });
-        if (error) return { error: messageFor(error) };
-        if (data.session) setSession(data.session);
-        return { requiresEmailConfirmation: !data.session };
-      } catch {
-        return {
-          error: 'Tidak dapat terhubung. Periksa koneksi lalu coba lagi.',
-        };
-      }
-    },
-    [],
-  );
+  const clearCallbackError = useCallback(() => setCallbackError(undefined), []);
 
   const signOut = useCallback(async () => {
     const client = getSupabaseClient();
     if (!client) return;
-    const { error } = await client.auth.signOut();
-    if (error) throw new Error(messageFor(error));
+    const { error } = await client.auth.signOut({ scope: 'local' });
     setSession(null);
+    if (error) throw new Error(messageFor(error));
   }, []);
 
   const value = useMemo(
     () => ({
       bypassAllowed: publicConfig.allowAuthBypass,
+      callbackError,
+      clearCallbackError,
       configured: isSupabaseConfigured,
       loading,
+      sendEmailLink,
       session,
-      signIn,
+      signInWithGoogle,
       signOut,
-      signUp,
     }),
-    [loading, session, signIn, signOut, signUp],
+    [
+      callbackError,
+      clearCallbackError,
+      loading,
+      sendEmailLink,
+      session,
+      signInWithGoogle,
+      signOut,
+    ],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

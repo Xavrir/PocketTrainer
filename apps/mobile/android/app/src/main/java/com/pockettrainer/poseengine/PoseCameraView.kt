@@ -237,7 +237,8 @@ internal class PoseCameraView(private val reactContext: ReactContext) : FrameLay
             if (!isGenerationRunning(generation)) return
             val poses = result.landmarks()
             if (poses.size != 1) {
-                postIfRunning(generation) { overlay.clear() }
+                // Keep the latest camera frame visible while removing stale pose graphics.
+                postIfRunning(generation) { overlay.clearLandmarks() }
                 emitTracking(
                     0.0,
                     false,

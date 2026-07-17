@@ -105,6 +105,9 @@ export async function apiFetch(
   path: string,
   init: RequestInit = {},
 ): Promise<Response> {
+  if (publicConfig.apiBaseUrlError) {
+    throw clientError('API_CONFIGURATION_UNSAFE', publicConfig.apiBaseUrlError);
+  }
   if (!publicConfig.apiBaseUrl) {
     throw clientError(
       'API_NOT_CONFIGURED',

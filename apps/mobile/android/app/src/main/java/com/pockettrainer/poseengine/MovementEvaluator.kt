@@ -28,18 +28,22 @@ internal data class MovementDefinitionSpec(
     val scoringVersion: Int,
     val minimumPhaseDurationMs: Long,
     val targetHoldDurationMs: Long?,
+    val postureScoringEnabled: Boolean,
 )
 
 internal object MovementDefinitionLoader {
     private val definitions = mapOf(
-        "body_squat" to MovementDefinitionSpec("body_squat", 1, 1, 100, null),
-        "incline_push_up" to MovementDefinitionSpec("incline_push_up", 1, 1, 100, null),
-        "warrior_ii" to MovementDefinitionSpec("warrior_ii", 1, 1, 500, 20_000),
-        "tree_pose" to MovementDefinitionSpec("tree_pose", 1, 1, 500, 15_000),
-        "jumping_jack" to MovementDefinitionSpec("jumping_jack", 1, 1, 100, null),
+        "body_squat" to MovementDefinitionSpec("body_squat", 1, 1, 100, null, true),
+        "incline_push_up" to MovementDefinitionSpec("incline_push_up", 1, 1, 100, null, false),
+        "warrior_ii" to MovementDefinitionSpec("warrior_ii", 1, 1, 500, 20_000, false),
+        "tree_pose" to MovementDefinitionSpec("tree_pose", 1, 1, 500, 15_000, false),
+        "jumping_jack" to MovementDefinitionSpec("jumping_jack", 1, 1, 100, null, false),
     )
 
     fun load(exerciseKey: String): MovementDefinitionSpec? = definitions[exerciseKey]
+
+    fun unsupported(exerciseKey: String) =
+        MovementDefinitionSpec(exerciseKey, 0, 0, Long.MAX_VALUE, null, false)
 }
 
 /**
@@ -48,7 +52,7 @@ internal object MovementDefinitionLoader {
  */
 internal class NativeMovementEvaluator(exerciseKey: String) {
     private var definition = MovementDefinitionLoader.load(exerciseKey)
-        ?: MovementDefinitionSpec("body_squat", 1, 1, 100, null)
+        ?: MovementDefinitionLoader.unsupported(exerciseKey)
     private var state = initialState(definition.exerciseKey)
     private var stateStartedAtMs = 0L
     private var lastTimestampMs: Long? = null
@@ -65,7 +69,7 @@ internal class NativeMovementEvaluator(exerciseKey: String) {
 
     fun selectExercise(exerciseKey: String) {
         definition = MovementDefinitionLoader.load(exerciseKey)
-            ?: MovementDefinitionSpec("body_squat", 1, 1, 100, null)
+            ?: MovementDefinitionLoader.unsupported(exerciseKey)
         reset()
     }
 
@@ -75,6 +79,14 @@ internal class NativeMovementEvaluator(exerciseKey: String) {
         fullBody: Boolean,
         timestampMs: Long,
     ): NativeMovementEvaluation {
+        if (MovementDefinitionLoader.load(definition.exerciseKey) == null) {
+            return snapshot(
+                confidenceEligible = false,
+                trackingStatus = "unsupported",
+                repCompleted = false,
+                completedRepScore = null,
+            )
+        }
         val eligible = fullBody && confidence >= 0.65 && points.size >= 33
         if (!eligible) {
             val targetHoldDurationMs = definition.targetHoldDurationMs
@@ -110,7 +122,7 @@ internal class NativeMovementEvaluator(exerciseKey: String) {
                 completedRepScore = result.second
             }
         }
-        val currentFormScore = if (repCompleted) completedRepScore else null
+        val currentFormScore = if (definition.postureScoringEnabled && repCompleted) completedRepScore else null
         return snapshot(
             confidenceEligible = true,
             trackingStatus = "eligible",
@@ -150,15 +162,12 @@ internal class NativeMovementEvaluator(exerciseKey: String) {
     private fun evaluatePushup(metrics: Metrics, timestampMs: Long): Pair<Boolean, Double?> {
         val elbow = metrics.elbowAngle ?: return false to null
         if (elbow > 160) {
-            if (state == "ascending" && pushupBottom && stableFor(timestampMs)) {
-                val safe = metrics.bodyLineDeviation <= 28
-                val score = if (safe) pushupScore(metrics.bodyLineDeviation) else null
+            if (state == "rising" && pushupBottom && stableFor(timestampMs)) {
                 repCount += 1
-                if (score != null) validRepCount += 1
                 pushupBottom = false
                 state = "complete"
                 stateStartedAtMs = timestampMs
-                return true to score
+                return true to null
             }
             if (state == "complete" || state == "ready") state = "top"
         } else if (metrics.elbowVelocity < -10 && (state == "top" || state == "ready" || state == "complete")) {
@@ -203,11 +212,9 @@ internal class NativeMovementEvaluator(exerciseKey: String) {
         } else if (state == "open" && !open) transition("closing", timestampMs)
         else if (state == "closing" && closed && stableFor(timestampMs) && jackOpen) {
             repCount += 1
-            val score = if (metrics.stanceWidth in 1.15..2.6) 100.0 else null
-            if (score != null) validRepCount += 1
             jackOpen = false
             transition("complete", timestampMs)
-            return true to score
+            return true to null
         }
         return false to null
     }
@@ -221,13 +228,13 @@ internal class NativeMovementEvaluator(exerciseKey: String) {
         state = state,
         repCount = repCount,
         validRepCount = validRepCount,
-        validHoldDurationMs = holdDurationMs,
-        formScore = completedRepScore,
+        validHoldDurationMs = if (definition.postureScoringEnabled) holdDurationMs else 0L,
+        formScore = if (definition.postureScoringEnabled) completedRepScore else null,
         confidenceEligible = confidenceEligible,
         trackingStatus = trackingStatus,
         feedbackKey = feedbackKey,
         repCompleted = repCompleted,
-        completedRepScore = completedRepScore,
+        completedRepScore = if (definition.postureScoringEnabled) completedRepScore else null,
     )
 
     private fun transition(next: String, timestampMs: Long) {
@@ -254,11 +261,10 @@ internal class NativeMovementEvaluator(exerciseKey: String) {
     }
 
     private fun squatDepthScore(kneeAngle: Double): Double = (((125.0 - kneeAngle.coerceIn(85.0, 125.0)) / 40.0) * 30.0 + 70.0).coerceIn(70.0, 100.0)
-    private fun pushupScore(bodyLineDeviation: Double): Double = (100.0 - bodyLineDeviation.coerceIn(0.0, 28.0) * 1.5).coerceIn(58.0, 100.0)
-
     private fun initialState(exerciseKey: String): String = when (exerciseKey) {
         "warrior_ii", "tree_pose" -> "searching"
-        else -> "ready"
+        "body_squat", "incline_push_up", "jumping_jack" -> "ready"
+        else -> "unsupported"
     }
 
     private class Metrics(

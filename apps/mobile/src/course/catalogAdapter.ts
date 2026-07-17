@@ -44,19 +44,9 @@ type NormalizedRequirements = Readonly<{
 
 const TRACK_KEYS = new Set<CourseTrackKey>(['strength', 'yoga', 'mobility']);
 
-// Keep this list aligned with MovementDefinitionLoader in the native pose
-// engine. Native support is not the same as server progression eligibility.
-const NATIVE_ENGINE_SUPPORTED_EXERCISE_KEYS = new Set([
-  'body_squat',
-  'incline_push_up',
-  'warrior_ii',
-  'tree_pose',
-  'jumping_jack',
-]);
-const NATIVE_ENGINE_EXERCISE_KEY_ALIASES: Readonly<Record<string, string>> = {
-  // The catalog contract names this movement warrior_two; native uses warrior_ii.
-  warrior_two: 'warrior_ii',
-};
+// Only movements with validated, tested posture scoring belong here. Other
+// catalog movements remain playable as clearly labelled guided practice.
+const POSTURE_SCORING_EXERCISE_KEYS = new Set(['body_squat']);
 
 const TRACK_ACCENTS: Readonly<Record<CourseTrackKey, string>> = {
   strength: colors.coral,
@@ -405,9 +395,7 @@ function readCoaching(
   const scoringSupported =
     definition !== null &&
     mode !== 'unknown' &&
-    NATIVE_ENGINE_SUPPORTED_EXERCISE_KEYS.has(
-      NATIVE_ENGINE_EXERCISE_KEY_ALIASES[exerciseKey] ?? exerciseKey,
-    );
+    POSTURE_SCORING_EXERCISE_KEYS.has(exerciseKey);
   return Object.freeze({
     mode,
     target,

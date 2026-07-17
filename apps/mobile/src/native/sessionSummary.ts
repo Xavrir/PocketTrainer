@@ -1,12 +1,6 @@
 export const MINIMUM_SCORING_CONFIDENCE = 0.6;
 
-export const POSTURE_SCORING_EXERCISE_KEYS = [
-  'body_squat',
-  'incline_push_up',
-  'warrior_ii',
-  'tree_pose',
-  'jumping_jack',
-] as const;
+export const POSTURE_SCORING_EXERCISE_KEYS = ['body_squat'] as const;
 
 export type LiveCoachTargetType = 'repetitions' | 'duration_ms';
 export type LiveCoachPainState = 'not_assessed' | 'none' | 'reported';
@@ -75,7 +69,9 @@ export type LiveCoachSummaryInput = Readonly<{
 }>;
 
 export function isPostureScoringSupported(exerciseKey: string): boolean {
-  return (POSTURE_SCORING_EXERCISE_KEYS as readonly string[]).includes(exerciseKey);
+  return (POSTURE_SCORING_EXERCISE_KEYS as readonly string[]).includes(
+    exerciseKey,
+  );
 }
 
 export function createLiveCoachSessionSummary(
@@ -140,9 +136,8 @@ export function createLiveCoachSessionSummary(
         ? 'native'
         : 'user_confirmed',
     activeDurationMs: Math.max(0, Math.round(input.activeDurationMs)),
-    durationSource: input.nativeCameraAvailable
-      ? 'tracking_eligible'
-      : 'session_timer',
+    durationSource:
+      coachingMode === 'posture_scored' ? 'tracking_eligible' : 'session_timer',
     averageTrackingConfidence,
     confidenceEligible,
     formScore,

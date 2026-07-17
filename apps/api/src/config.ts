@@ -5,6 +5,11 @@ const booleanFromString = z
   .default('false')
   .transform((value) => value === 'true');
 
+function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  return host === 'localhost' || host.endsWith('.localhost') || host === '0.0.0.0' || host === '127.0.0.1' || host === '::' || host === '::1';
+}
+
 const environmentSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -45,6 +50,19 @@ const environmentSchema = z
         message: 'Production must use the PostgreSQL data store.',
       });
     }
+    if (environment.DATABASE_URL) {
+      try {
+        const databaseUrl = new URL(environment.DATABASE_URL);
+        if (environment.NODE_ENV === 'production' && isLoopbackHost(databaseUrl.hostname)) {
+          context.addIssue({ code: z.ZodIssueCode.custom, path: ['DATABASE_URL'], message: 'Production cannot use a loopback PostgreSQL host.' });
+        }
+      } catch {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ['DATABASE_URL'], message: 'DATABASE_URL must be a valid PostgreSQL URL.' });
+      }
+    }
+    if (environment.NODE_ENV === 'production' && !environment.DATABASE_SSL) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['DATABASE_SSL'], message: 'Production PostgreSQL connections must verify TLS.' });
+    }
     if (!environment.ALLOW_INSECURE_DEV_AUTH && !environment.SUPABASE_URL) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -64,6 +82,13 @@ const environmentSchema = z
       }
       if (environment.NODE_ENV === 'production' && !environment.SUPABASE_JWT_ISSUER) {
         context.addIssue({ code: z.ZodIssueCode.custom, path: ['SUPABASE_JWT_ISSUER'], message: 'Production must pin SUPABASE_JWT_ISSUER explicitly.' });
+      }
+    }
+    if (environment.NODE_ENV === 'production') {
+      const contentUrl = new URL(environment.CONTENT_BASE_URL);
+      const quickTunnel = contentUrl.hostname === 'trycloudflare.com' || contentUrl.hostname.endsWith('.trycloudflare.com');
+      if (contentUrl.protocol !== 'https:' || isLoopbackHost(contentUrl.hostname) || quickTunnel) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ['CONTENT_BASE_URL'], message: 'Production content must use a stable public HTTPS origin.' });
       }
     }
   });

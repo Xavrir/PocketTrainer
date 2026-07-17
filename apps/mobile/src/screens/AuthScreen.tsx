@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -15,56 +15,67 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { colors, radius, spacing, type } from '../design/tokens';
 import { useAuth } from '../auth/AuthProvider';
 
-type Mode = 'sign-in' | 'sign-up';
+type BusyAction = 'google' | 'send-email-link';
 
 export function AuthScreen() {
-  const { signIn, signUp } = useAuth();
-  const [mode, setMode] = useState<Mode>('sign-in');
+  const { callbackError, clearCallbackError, sendEmailLink, signInWithGoogle } =
+    useAuth();
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<BusyAction>();
   const [message, setMessage] = useState<string>();
   const [isError, setIsError] = useState(false);
 
-  const submit = async () => {
-    const normalizedEmail = email.trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      setIsError(true);
-      setMessage('Masukkan alamat email yang valid.');
-      return;
-    }
-    if (password.length < 8) {
-      setIsError(true);
-      setMessage('Kata sandi harus memiliki minimal 8 karakter.');
-      return;
-    }
-    setBusy(true);
-    setMessage(undefined);
+  useEffect(() => {
+    if (!callbackError) return;
+    setIsError(true);
+    setMessage(callbackError);
+    clearCallbackError();
+  }, [callbackError, clearCallbackError]);
+
+  const showResult = (error?: string) => {
+    setIsError(Boolean(error));
+    setMessage(error);
+  };
+
+  const continueWithGoogle = async () => {
+    setBusy('google');
+    showResult();
     try {
-      const result =
-        mode === 'sign-in'
-          ? await signIn(normalizedEmail, password)
-          : await signUp(normalizedEmail, password);
-      if (result.error) {
-        setIsError(true);
-        setMessage(result.error);
-        return;
-      }
-      if (result.requiresEmailConfirmation) {
+      const result = await signInWithGoogle();
+      if (result.error) showResult(result.error);
+      else {
         setIsError(false);
-        setMessage('Periksa emailmu, lalu konfirmasi akun sebelum masuk.');
-        setMode('sign-in');
-        setPassword('');
+        setMessage('Selesaikan login Google di browser yang terbuka.');
       }
     } finally {
-      setBusy(false);
+      setBusy(undefined);
     }
   };
 
-  const changeMode = (nextMode: Mode) => {
-    setMode(nextMode);
-    setMessage(undefined);
-    setPassword('');
+  const requestEmailLink = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      showResult('Masukkan alamat email yang valid.');
+      return;
+    }
+    setBusy('send-email-link');
+    showResult();
+    try {
+      const result = await sendEmailLink(normalizedEmail);
+      if (result.error) {
+        showResult(result.error);
+        return;
+      }
+      if (result.emailLinkSent) {
+        setEmail(normalizedEmail);
+        setIsError(false);
+        setMessage(
+          'Tautan masuk sudah dikirim. Buka tautan dari email di perangkat ini.',
+        );
+      }
+    } finally {
+      setBusy(undefined);
+    }
   };
 
   return (
@@ -79,36 +90,37 @@ export function AuthScreen() {
         <BrandMark />
         <View style={styles.heading}>
           <Text style={styles.eyebrow}>AKUN POCKETTRAINER</Text>
-          <Text style={styles.title}>
-            {mode === 'sign-in' ? 'Lanjutkan progresmu.' : 'Mulai jalurmu.'}
-          </Text>
+          <Text style={styles.title}>Lanjutkan progresmu.</Text>
           <Text style={styles.body}>
-            {mode === 'sign-in'
-              ? 'Masuk untuk menyinkronkan XP, penguasaan, dan jalur latihanmu.'
-              : 'Buat akun untuk menyimpan progres dengan aman di semua perangkatmu.'}
+            Masuk untuk menyinkronkan XP, penguasaan, dan jalur latihanmu.
           </Text>
         </View>
-        <View style={styles.tabs}>
-          {(
-            [
-              ['sign-in', 'Masuk'],
-              ['sign-up', 'Daftar'],
-            ] as const
-          ).map(([value, label]) => (
-            <Pressable
-              accessibilityRole="tab"
-              accessibilityState={{ selected: mode === value }}
-              key={value}
-              onPress={() => changeMode(value)}
-              style={[styles.tab, mode === value && styles.tabActive]}
-            >
-              <Text
-                style={[styles.tabText, mode === value && styles.tabTextActive]}
-              >
-                {label}
-              </Text>
-            </Pressable>
-          ))}
+        <Pressable
+          accessibilityLabel="Lanjut dengan Google"
+          accessibilityRole="button"
+          accessibilityState={{
+            busy: busy === 'google',
+            disabled: Boolean(busy),
+          }}
+          disabled={Boolean(busy)}
+          onPress={continueWithGoogle}
+          style={({ pressed }) => [
+            styles.googleButton,
+            pressed && styles.googleButtonPressed,
+            busy && styles.buttonDisabled,
+          ]}
+        >
+          <View style={styles.googleMark}>
+            <Text style={styles.googleMarkText}>G</Text>
+          </View>
+          <Text style={styles.googleButtonText}>
+            {busy === 'google' ? 'Membuka Google…' : 'Lanjut dengan Google'}
+          </Text>
+        </Pressable>
+        <View style={styles.divider}>
+          <View style={styles.dividerLine} />
+          <Text style={styles.dividerText}>ATAU DENGAN EMAIL</Text>
+          <View style={styles.dividerLine} />
         </View>
         <View style={styles.form}>
           <Text style={styles.label}>Email</Text>
@@ -119,30 +131,13 @@ export function AuthScreen() {
               autoCapitalize="none"
               autoComplete="email"
               autoCorrect={false}
+              editable={!busy}
               keyboardType="email-address"
               onChangeText={setEmail}
               placeholder="nama@email.com"
               placeholderTextColor={colors.secondary}
               style={styles.input}
               value={email}
-            />
-          </View>
-          <Text style={[styles.label, styles.passwordLabel]}>Kata sandi</Text>
-          <View style={styles.inputWrap}>
-            <Icon color={colors.secondary} name="lock" size={20} />
-            <TextInput
-              accessibilityLabel="Kata sandi"
-              autoCapitalize="none"
-              autoComplete={
-                mode === 'sign-in' ? 'current-password' : 'new-password'
-              }
-              onChangeText={setPassword}
-              maxLength={128}
-              placeholder="Minimal 8 karakter"
-              placeholderTextColor={colors.secondary}
-              secureTextEntry
-              style={styles.input}
-              value={password}
             />
           </View>
           {message ? (
@@ -161,22 +156,24 @@ export function AuthScreen() {
             </View>
           ) : null}
           <PrimaryButton
-            disabled={busy}
+            disabled={Boolean(busy)}
             label={
-              busy
-                ? 'Memproses…'
-                : mode === 'sign-in'
-                ? 'Masuk dengan aman'
-                : 'Buat akun'
+              busy === 'send-email-link'
+                ? 'Mengirim tautan…'
+                : 'Kirim tautan masuk'
             }
-            onPress={submit}
+            onPress={requestEmailLink}
           />
+          <Text style={styles.emailHint}>
+            Supabase akan mengirim tautan sekali pakai, bukan kode angka. Buka
+            tautan di perangkat ini untuk masuk.
+          </Text>
         </View>
         <View style={styles.privacy}>
           <Icon color={colors.mint} name="shield" size={20} />
           <Text style={styles.privacyText}>
-            Supabase hanya menangani identitas. Video latihan tidak pernah
-            dikirim saat kamu masuk.
+            Google dan Supabase hanya menangani identitas. Video latihan tidak
+            pernah dikirim saat kamu masuk.
           </Text>
         </View>
       </ScrollView>
@@ -226,35 +223,49 @@ const styles = StyleSheet.create({
   eyebrow: { ...type.micro, color: colors.coral, letterSpacing: 1.1 },
   title: { ...type.display, color: colors.text, marginTop: spacing.xs },
   body: { ...type.body, color: colors.secondary, marginTop: spacing.sm },
-  tabs: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.control,
-    borderWidth: 1,
-    flexDirection: 'row',
-    marginTop: spacing.xl,
-    padding: 4,
-  },
-  tab: {
+  googleButton: {
     alignItems: 'center',
-    borderRadius: 9,
-    flex: 1,
-    minHeight: 48,
+    backgroundColor: colors.text,
+    borderRadius: radius.control,
+    flexDirection: 'row',
+    gap: spacing.sm,
     justifyContent: 'center',
+    marginTop: spacing.xl,
+    minHeight: 56,
+    paddingHorizontal: spacing.md,
   },
-  tabActive: { backgroundColor: colors.raised },
-  tabText: { ...type.support, color: colors.secondary, fontWeight: '700' },
-  tabTextActive: { color: colors.text },
+  googleButtonPressed: { opacity: 0.88 },
+  buttonDisabled: { opacity: 0.55 },
+  googleMark: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 3,
+    height: 24,
+    justifyContent: 'center',
+    width: 24,
+  },
+  googleMarkText: { color: '#4285F4', fontSize: 17, fontWeight: '800' },
+  googleButtonText: {
+    ...type.body,
+    color: '#201D1D',
+    fontWeight: '700',
+  },
+  divider: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginVertical: spacing.lg,
+  },
+  dividerLine: { backgroundColor: colors.border, flex: 1, height: 1 },
+  dividerText: { ...type.micro, color: colors.secondary },
   form: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderRadius: radius.card,
     borderWidth: 1,
-    marginTop: spacing.sm,
     padding: spacing.lg,
   },
   label: { ...type.micro, color: colors.secondary, marginBottom: spacing.xs },
-  passwordLabel: { marginTop: spacing.md },
   inputWrap: {
     alignItems: 'center',
     backgroundColor: colors.canvas,
@@ -286,6 +297,11 @@ const styles = StyleSheet.create({
   messageError: { backgroundColor: 'rgba(255,91,82,.08)' },
   messageText: { ...type.support, color: colors.mint, flex: 1 },
   messageTextError: { color: colors.danger },
+  emailHint: {
+    ...type.support,
+    color: colors.secondary,
+    marginTop: spacing.sm,
+  },
   privacy: {
     alignItems: 'flex-start',
     flexDirection: 'row',

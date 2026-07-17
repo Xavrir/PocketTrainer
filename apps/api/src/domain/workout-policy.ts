@@ -9,17 +9,11 @@ import type {
 } from './domain.types';
 
 /**
- * These keys are the only movements for which the native engine can emit a
- * confidence-eligible form score. Keep this allowlist narrower than the
- * catalog so newly published or unknown movements fail closed.
+ * Squat is the only movement with a validated posture-scoring policy. Keep
+ * this allowlist narrower than the catalog so guided and unknown movements
+ * fail closed if they try to submit tracking eligibility or form scores.
  */
-export const TRACKING_SUPPORTED_EXERCISE_KEYS = new Set([
-  'body_squat',
-  'incline_push_up',
-  'warrior_ii',
-  'tree_pose',
-  'jumping_jack',
-]);
+export const TRACKING_SUPPORTED_EXERCISE_KEYS = new Set(['body_squat']);
 
 /** @deprecated Use TRACKING_SUPPORTED_EXERCISE_KEYS for policy decisions. */
 export const SCORED_EXERCISE_KEY = 'body_squat';

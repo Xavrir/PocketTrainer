@@ -76,6 +76,12 @@ export function describeResultMetric(session: ResultSessionData): {
   };
 }
 
+export function usesPainSafetyPresentation(
+  painReported: boolean | undefined,
+): boolean {
+  return painReported === true;
+}
+
 type Feedback = Readonly<{
   perceivedDifficulty: number;
   painReported: boolean;
@@ -151,7 +157,10 @@ export function ResultScreen({
     }
     return `${completion.masteryBefore} → ${completion.masteryAfter}`;
   }, [completion, serverConfirmed]);
-  const painSafetyActive = pain === true || completion?.progressionSuppressed;
+  // Guided practice and low-confidence sessions also suppress mastery. That is
+  // not evidence of pain, so only the user's explicit answer enables the
+  // pain-specific safety presentation.
+  const painSafetyActive = usesPainSafetyPresentation(pain);
 
   const submit = async () => {
     if (effort === undefined || pain === undefined || submitting) return;

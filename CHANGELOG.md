@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-17
+
+### Added
+
+- Google-first Supabase Auth with exact Android callback restoration and an
+  honest email magic-link fallback.
+- Stable Azure App Service HTTPS API backed by migrated Azure PostgreSQL,
+  managed-identity image pull, a least-privilege runtime role, and forced RLS.
+- Kotlin evaluator instrumentation and release URL/secret gates.
+
+### Fixed
+
+- Limited posture scoring and mastery progression to the validated squat path;
+  unsupported exercises now remain guided practice without fake form scores.
+- Corrected pause-aware targets, push-up phase naming, unknown-movement fallback,
+  no-tracking camera flicker, result pain messaging, and offline result reopen.
+- Made the release workflow build the requested immutable tag instead of the
+  workflow branch head.
+
 ## [0.2.0] - 2026-07-16
 
 ### Added
@@ -41,7 +60,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Android-first React Native workspace.
 - Initial hackathon architecture and checkpoint documentation.
 
-[Unreleased]: https://github.com/Xavrir/PocketTrainer/compare/v0.2.0-demo...HEAD
+[Unreleased]: https://github.com/Xavrir/PocketTrainer/compare/v0.2.1-demo...HEAD
+[0.2.1]: https://github.com/Xavrir/PocketTrainer/compare/v0.2.0-demo...v0.2.1-demo
 [0.2.0]: https://github.com/Xavrir/PocketTrainer/compare/v0.1.1-infra...v0.2.0-demo
 [0.1.1]: https://github.com/Xavrir/PocketTrainer/compare/v0.1.0-foundation...v0.1.1-infra
 [0.1.0]: https://github.com/Xavrir/PocketTrainer/releases/tag/v0.1.0-foundation

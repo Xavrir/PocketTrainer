@@ -1,6 +1,8 @@
 # Checkpoints
 
-The hackathon repository uses exactly three conventional commits on `master`. Each commit has an annotated Git tag and GitHub release, so reviewers can inspect the product at three honest milestones.
+The original hackathon delivery uses exactly three annotated checkpoint tags and
+GitHub releases, so reviewers can inspect three honest milestones. Corrective
+patch releases get new immutable tags and never move those checkpoints.
 
 ## v0.1.0-foundation
 
@@ -27,19 +29,26 @@ The hackathon repository uses exactly three conventional commits on `master`. Ea
 - Every page independently reviewed from a rendered screenshot.
 - Idempotent batch sync and authoritative XP ledger.
 - Mastery plus level unlock gates, streak protection, achievements.
-- Supabase Cloud email/password Auth with persisted sessions and NestJS JWKS
+- Supabase Cloud Auth with persisted sessions and NestJS JWKS
   verification.
 - Android Keystore-wrapped SQLCipher storage, durable workout queue, cached
   bootstrap, reconnect flush, and authoritative sync acknowledgement.
 - Samsung SM-A556E camera/inference smoke-test evidence.
+
+## v0.2.1-demo corrective release
+
+- Google-first Auth and email magic-link fallback included in the APK.
+- Stable Azure HTTPS API instead of localhost/ADB reverse.
+- Squat-only posture scoring; unsupported movements are guided and unscored.
+- Connected Kotlin evaluator/offline-store instrumentation and camera flicker fix.
+- Exact-tag release build plus development-URL and secret-marker scanning.
 
 ## Still required before public beta
 
 - App-level ambiguous-response/process-death recovery acceptance evidence.
 - Representative low/mid-range Android performance matrix.
 - Qualified fitness review and validated golden-video dataset.
-- Privacy export/deletion, final accessibility audit, and Azure/Cloudflare
-  production provisioning.
+- Final accessibility audit and optional Cloudflare custom-domain provisioning.
 - Play-signed release build; the hackathon artifact is debug-signed.
 
 ## Tagging commands
@@ -49,3 +58,6 @@ git tag -a v0.2.0-demo -m "PocketTrainer Android demo checkpoint"
 git push origin v0.2.0-demo
 gh release create v0.2.0-demo --prerelease --generate-notes
 ```
+
+For the corrective release, use the same immutable flow with `v0.2.1-demo`;
+never retag or replace `v0.2.0-demo`.

@@ -10,7 +10,7 @@ npm install --workspaces=false
 npm run start:dev
 ```
 
-Set `DATA_STORE=memory` and `ALLOW_INSECURE_DEV_AUTH=true` for an isolated local demo. Supply `X-Dev-Auth-Subject: <uuid>` on protected requests. Production configuration rejects the memory store and development authentication.
+Set `DATA_STORE=memory` and `ALLOW_INSECURE_DEV_AUTH=true` for an isolated local demo. Supply `X-Dev-Auth-Subject: <uuid>` on protected requests. Production configuration rejects the memory store, development authentication, loopback PostgreSQL, disabled database TLS, and temporary/insecure content origins.
 
 For PostgreSQL, apply the migration in `database/README.md`, use `DATA_STORE=postgres`, and provide the least-privilege runtime connection URL. The API validates Supabase access tokens against the project's cached remote JWKS, including issuer, audience, expiry and supported signing algorithms. The JWT `sub` maps to an internal Azure UUID; email is never an identity key.
 
@@ -41,6 +41,12 @@ Build the production image from the monorepo root so the frozen workspace lockfi
 
 ```bash
 docker build -f apps/api/Dockerfile -t pockettrainer-api:local .
+docker inspect --format '{{json .Config.Healthcheck}}' pockettrainer-api:local
 ```
 
-The integration suite verifies authentication, catalog scope, idempotency conflicts/replays, assessment XP, plan generation, two-session mastery, pain suppression, and offline batch replay.
+The image health check calls `/health/ready`, which includes a data-store ping.
+The deployed Azure App Service uses `/health` for platform health monitoring;
+the Container Apps alternative keeps explicit startup/liveness/readiness probes
+in `infrastructure/azure/container-apps.bicep`. The integration suite verifies
+authentication, catalog scope, idempotency conflicts/replays, assessment XP,
+plan generation, two-session mastery, pain suppression, and offline batch replay.

@@ -95,7 +95,7 @@ describe('PocketTrainer MVP API', () => {
       .expect(({ body }) => expect(body.error.code).toBe('WORKOUT_RESULT_VERSION_MISMATCH'));
   });
 
-  it('accepts native incline-push-up tracking and keeps canonical completion idempotent', async () => {
+  it('rejects posture-scored incline-push-up results', async () => {
     const scenarioAuth = isolatedAuth();
     const profile = {
       displayName: 'Bima', locale: 'id', timezone: 'Asia/Jakarta', primaryGoal: 'build_strength', experienceLevel: 'foundation',
@@ -110,21 +110,11 @@ describe('PocketTrainer MVP API', () => {
       formScore: 90, completionScore: 100, controlScore: 90, consistencyScore: 90, trackingEligible: true, durationMs: 30_000,
     };
     await request(app.getHttpServer()).put(`/v1/workout-sessions/${session.body.id}/results`).set(scenarioAuth).set('Idempotency-Key', randomUUID())
-      .send({ results: [trackedPushup] }).expect(200);
-    const completionKey = randomUUID();
-    const completionBody = { completedAt: new Date().toISOString(), perceivedDifficulty: 5, painReported: false };
-    const completed = await request(app.getHttpServer()).post(`/v1/workout-sessions/${session.body.id}/complete`).set(scenarioAuth).set('Idempotency-Key', completionKey)
-      .send(completionBody).expect(201).expect('Idempotency-Replayed', 'false');
-    await request(app.getHttpServer()).post(`/v1/workout-sessions/${session.body.id}/complete`).set(scenarioAuth).set('Idempotency-Key', completionKey)
-      .send(completionBody).expect(201).expect('Idempotency-Replayed', 'true');
-    expect(completed.body).toMatchObject({ xpAwarded: 80, progressionSuppressed: false, newlyUnlockedLessonIds: [] });
-    await request(app.getHttpServer()).get('/v1/progress').set(scenarioAuth).expect(200).expect(({ body }) => {
-      expect(body.xp.total).toBe(80);
-      expect(body.completedLessonIds).toContain(pushupLessonId);
-    });
+      .send({ results: [trackedPushup] }).expect(422)
+      .expect(({ body }) => expect(body.error.code).toBe('WORKOUT_TRACKING_UNSUPPORTED'));
   });
 
-  it('suppresses guidance-only results for a supported movement when tracking confidence is unavailable', async () => {
+  it('suppresses guidance-only incline-push-up progression', async () => {
     const scenarioAuth = isolatedAuth();
     const profile = {
       displayName: 'Bima', locale: 'id', timezone: 'Asia/Jakarta', primaryGoal: 'build_strength', experienceLevel: 'foundation',

@@ -56,8 +56,9 @@ import type {
 } from './src/api';
 import { deleteAccount } from './src/api';
 import { useOfflineRuntime } from './src/offline';
+import { createWorkoutMeasurement } from './src/data/workoutMeasurement';
 
-const APP_VERSION = '0.2.0';
+const APP_VERSION = '0.2.1';
 const CONSENT_VERSION = '1.0.0';
 
 function supportForLesson(lesson: CourseLesson): LessonSupportMode {
@@ -684,7 +685,9 @@ function AppContent({
               : 0,
           durationMs: sessionSummary.elapsedTimeMs,
           formScore: sessionSummary.formScore,
-          trackingEligible: sessionSummary.confidenceEligible,
+          trackingEligible:
+            sessionSummary.coachingMode === 'posture_scored' &&
+            sessionSummary.confidenceEligible,
           scoringSupported: sessionSummary.coachingMode === 'posture_scored',
         }}
         syncStatus={syncStatus}
@@ -796,6 +799,7 @@ function buildWorkoutAttempt({
     summary.coachingMode === 'posture_scored' &&
     summary.confidenceEligible &&
     summary.formScore !== null;
+  const measurement = createWorkoutMeasurement(summary);
   const completionScore = summary.targetMet
     ? 100
     : Math.round(
@@ -828,12 +832,8 @@ function buildWorkoutAttempt({
           scoringVersion: exercise.scoringVersion,
           poseModelVersion: exercise.poseModelVersion,
           setNumber: 1,
-          totalReps:
-            summary.targetType === 'repetitions' ? summary.repetitionCount : 0,
-          validReps:
-            summary.targetType === 'repetitions' && postureEligible
-              ? summary.repetitionCount
-              : 0,
+          totalReps: measurement.totalReps,
+          validReps: measurement.validReps,
           ...(postureEligible ? { formScore: summary.formScore! } : {}),
           completionScore,
           controlScore: postureEligible ? Math.round(summary.formScore!) : 0,
@@ -841,7 +841,7 @@ function buildWorkoutAttempt({
             ? Math.round((summary.averageTrackingConfidence ?? 0) * 100)
             : 0,
           trackingEligible: postureEligible,
-          durationMs: summary.elapsedTimeMs,
+          durationMs: measurement.durationMs,
         },
       ],
     },

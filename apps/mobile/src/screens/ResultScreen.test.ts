@@ -1,4 +1,8 @@
-import { describeResultMetric, type ResultSessionData } from './ResultScreen';
+import {
+  describeResultMetric,
+  type ResultSessionData,
+  usesPainSafetyPresentation,
+} from './ResultScreen';
 
 const baseSession: ResultSessionData = {
   exerciseLabel: 'Incline Push-up',
@@ -38,5 +42,13 @@ describe('describeResultMetric', () => {
       scoreEligible: false,
       targetUnit: 'repetisi selesai (tidak dinilai)',
     });
+  });
+});
+
+describe('usesPainSafetyPresentation', () => {
+  it('does not mistake ordinary progression suppression for reported pain', () => {
+    expect(usesPainSafetyPresentation(undefined)).toBe(false);
+    expect(usesPainSafetyPresentation(false)).toBe(false);
+    expect(usesPainSafetyPresentation(true)).toBe(true);
   });
 });
