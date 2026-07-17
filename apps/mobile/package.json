@@ -1,6 +1,6 @@
 {
   "name": "@pockettrainer/mobile",
-  "version": "0.2.2",
+  "version": "0.3.0-beta",
   "private": true,
   "scripts": {
     "android": "react-native run-android",

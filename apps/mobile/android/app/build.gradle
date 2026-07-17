@@ -62,6 +62,20 @@ react {
  */
 def enableProguardInReleaseBuilds = false
 
+def releaseSigning = [
+    storeFile: System.getenv("POCKETTRAINER_UPLOAD_STORE_FILE"),
+    storePassword: System.getenv("POCKETTRAINER_UPLOAD_STORE_PASSWORD"),
+    keyAlias: System.getenv("POCKETTRAINER_UPLOAD_KEY_ALIAS"),
+    keyPassword: System.getenv("POCKETTRAINER_UPLOAD_KEY_PASSWORD"),
+]
+def releaseSigningComplete = releaseSigning.values().every { value -> value != null && !value.trim().isEmpty() }
+def releaseTaskRequested = gradle.startParameter.taskNames.any { taskName -> taskName.toLowerCase().contains("release") }
+if (releaseTaskRequested && !releaseSigningComplete) {
+    throw new GradleException(
+        "v0.3.0-beta release tasks require the Play upload-key environment variables; no production-claimed artifact was created."
+    )
+}
+
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
  *
@@ -85,8 +99,8 @@ android {
         applicationId "com.pockettrainer"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 4
-        versionName "0.2.2"
+        versionCode 5
+        versionName "0.3.0-beta"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
@@ -96,16 +110,23 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (releaseSigningComplete) {
+            release {
+                storeFile file(releaseSigning.storeFile)
+                storePassword releaseSigning.storePassword
+                keyAlias releaseSigning.keyAlias
+                keyPassword releaseSigning.keyPassword
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // v0.2.2-demo is intentionally debug-signed for hackathon distribution.
-            // It is not a Play production artifact. A production release must replace
-            // this with a protected upload key and must never reuse debug.keystore.
-            signingConfig signingConfigs.debug
+            if (releaseSigningComplete) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }

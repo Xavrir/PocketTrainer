@@ -214,7 +214,7 @@ export function ProfileScreen({
           {deleteError}
         </Text>
       ) : null}
-      <Text style={styles.version}>PocketTrainer demo · v0.2.2</Text>
+      <Text style={styles.version}>PocketTrainer beta · v0.3.0</Text>
     </ScrollView>
   );
 }
