@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  ActivityIndicator,
   ImageBackground,
   ScrollView,
   StyleSheet,
@@ -98,9 +99,15 @@ export function LessonPreviewScreen({
 export function AssessmentIntroScreen({
   onBack,
   onContinue,
+  loading = false,
+  error = null,
+  onRetry,
 }: {
   onBack: () => void;
   onContinue: () => void;
+  loading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   return (
@@ -117,21 +124,21 @@ export function AssessmentIntroScreen({
         ]}
       >
         <Text style={styles.lead}>
-          Tiga menit untuk menyesuaikan jalur latihan dengan cara tubuhmu
-          bergerak hari ini.
+          Tiga squat nyaman untuk mengukur kontrol tubuh bawah. Kemampuan lain
+          tetap ditandai belum diukur.
         </Text>
         <View style={styles.scoreCard}>
           <View style={styles.orbit}>
             <View style={styles.orbitCore}>
               <Text style={styles.orbitValue}>3</Text>
-              <Text style={styles.orbitUnit}>MENIT</Text>
+              <Text style={styles.orbitUnit}>REP</Text>
             </View>
           </View>
           <View style={styles.scoreCopy}>
             <Text style={styles.cardTitle}>Bukan tes kelulusan.</Text>
             <Text style={styles.cardBody}>
-              Kami melihat kontrol, rentang gerak, dan keyakinan tracking—bukan
-              bentuk tubuhmu.
+              Server menilai bukti squat yang memenuhi syarat. Aplikasi tidak
+              mengirim level pilihan pengguna.
             </Text>
           </View>
         </View>
@@ -141,7 +148,7 @@ export function AssessmentIntroScreen({
             'Kamera setinggi pinggul',
             'Seluruh tubuh harus terlihat.',
           ],
-          ['person', 'Squat tubuh bebas', 'Lakukan 3 repetisi nyaman.'],
+          ['person', 'Squat tubuh bebas', 'Lakukan tepat 3 repetisi nyaman.'],
           ['shield', 'Kamu pegang kendali', 'Berhenti jika terasa nyeri.'],
         ].map(([icon, title, body], index) => (
           <View key={title} style={styles.stepRow}>
@@ -166,9 +173,32 @@ export function AssessmentIntroScreen({
             tebakan.
           </Text>
         </View>
+        {error ? (
+          <View accessibilityRole="alert" style={styles.errorNotice}>
+            <Icon color={colors.danger} name="shield" size={20} />
+            <View style={styles.errorNoticeCopy}>
+              <Text style={styles.errorNoticeTitle}>
+                Asesmen belum dibuat server.
+              </Text>
+              <Text style={styles.noticeText}>{error}</Text>
+            </View>
+          </View>
+        ) : null}
       </ScrollView>
       <SafeFooter>
-        <PrimaryButton label="Siapkan kamera" onPress={onContinue} />
+        {loading ? (
+          <View accessibilityRole="progressbar" style={styles.loadingAction}>
+            <ActivityIndicator color={colors.coral} />
+            <Text style={styles.loadingActionText}>
+              Membuat asesmen server…
+            </Text>
+          </View>
+        ) : (
+          <PrimaryButton
+            label={error && onRetry ? 'Coba buat lagi' : 'Siapkan kamera'}
+            onPress={error && onRetry ? onRetry : onContinue}
+          />
+        )}
       </SafeFooter>
     </View>
   );
@@ -249,15 +279,19 @@ export function SafeVariationScreen({
 export function CameraSetupScreen({
   onBack,
   onReady,
+  mode = 'lesson',
 }: {
   onBack: () => void;
   onReady: () => void;
+  mode?: 'assessment' | 'lesson';
 }) {
   const insets = useSafeAreaInsets();
   return (
     <View style={styles.screen}>
       <PageHeader
-        eyebrow="PENEMPATAN KAMERA"
+        eyebrow={
+          mode === 'assessment' ? 'ASESMEN SQUAT · 3 REP' : 'PENEMPATAN KAMERA'
+        }
         onBack={onBack}
         step="KALIBRASI"
         title="Beri ruang untuk bergerak."
@@ -312,7 +346,14 @@ export function CameraSetupScreen({
             Tekan tombol merah “Stop” kapan saja untuk mengakhiri sesi.
           </Text>
         </View>
-        <PrimaryButton label="Mulai kalibrasi" onPress={onReady} />
+        <PrimaryButton
+          label={
+            mode === 'assessment'
+              ? 'Mulai asesmen 3 repetisi'
+              : 'Mulai kalibrasi'
+          }
+          onPress={onReady}
+        />
       </View>
     </View>
   );
@@ -458,6 +499,29 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   noticeText: { ...type.support, color: colors.text, flex: 1 },
+  errorNotice: {
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(255,91,82,.08)',
+    borderColor: 'rgba(255,91,82,.3)',
+    borderRadius: radius.card,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    padding: spacing.md,
+  },
+  errorNoticeCopy: { flex: 1 },
+  errorNoticeTitle: { ...type.card, color: colors.danger, fontSize: 15 },
+  loadingAction: {
+    alignItems: 'center',
+    backgroundColor: colors.raised,
+    borderRadius: radius.control,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    height: 56,
+    justifyContent: 'center',
+  },
+  loadingActionText: { ...type.body, color: colors.secondary },
   safeStopCard: {
     alignItems: 'flex-start',
     backgroundColor: 'rgba(255,180,84,.08)',

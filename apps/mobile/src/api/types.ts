@@ -152,6 +152,61 @@ export type WorkoutPlan = {
   lessonIds: string[];
 };
 
+export type AssessmentResultV1 = {
+  lowerBodyControl: number;
+  upperBodyControl: number;
+  balance: number;
+  mobility: number;
+  coreStability: number;
+  recommendedLevel: 'foundation' | 'beginner' | 'intermediate';
+  trackingEligible: boolean;
+  restrictions: string[];
+};
+
+/**
+ * Evidence for the version-two, squat-only movement assessment.
+ *
+ * The client submits observations, never a recommended level. The API owns all
+ * scoring, progression, XP, and plan decisions.
+ */
+export type AssessmentEvidenceV2 = {
+  squatSessionId: string;
+  targetReps: 3;
+  validReps: number;
+  durationMs: number;
+  confidenceEligible: boolean;
+  formScore: number | null;
+  painReported: boolean;
+};
+
+export type AssessmentResultV2 = {
+  version: 2;
+  lowerBodyControl: number | null;
+  upperBodyControl: null;
+  balance: null;
+  mobility: null;
+  coreStability: null;
+  recommendedLevel: 'foundation' | null;
+  evidence: AssessmentEvidenceV2;
+  progressionSuppressed: boolean;
+};
+
+export type Assessment = {
+  id: string;
+  status: 'in_progress' | 'completed';
+  assessmentVersion: string;
+  startedAt: string;
+  completedAt?: string;
+  result?: AssessmentResultV1 | AssessmentResultV2;
+};
+
+export type AssessmentCompletionV2 = {
+  assessment: Assessment;
+  xpAwarded: number;
+  currentPlan: WorkoutPlan | null;
+  progressionSuppressed: boolean;
+};
+
 export type Bootstrap = {
   serverTime: string;
   profile: Profile | null;

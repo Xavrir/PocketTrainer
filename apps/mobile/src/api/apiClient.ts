@@ -1,6 +1,9 @@
 import { getSupabaseClient } from '../auth/supabase';
 import { publicConfig } from '../config/publicConfig';
 import type {
+  Assessment,
+  AssessmentCompletionV2,
+  AssessmentEvidenceV2,
   ApiErrorBody,
   Bootstrap,
   Catalog,
@@ -31,6 +34,7 @@ import type {
   UpdateProfileInput,
   UploadWorkoutResultsInput,
   WorkoutCompletion,
+  WorkoutPlan,
   WorkoutSession,
 } from './types';
 import {
@@ -305,6 +309,31 @@ export function updateConsent(
   );
 }
 
+export function createAssessment(
+  options: ApiMutationOptions,
+): Promise<Assessment> {
+  return jsonMutation<Assessment>('/v1/assessments', 'POST', {}, options);
+}
+
+export function completeAssessment(
+  assessmentId: string,
+  evidence: AssessmentEvidenceV2,
+  options: ApiMutationOptions,
+): Promise<AssessmentCompletionV2> {
+  return jsonMutation<AssessmentCompletionV2>(
+    `/v1/assessments/${requireId(assessmentId, 'Assessment ID')}/complete`,
+    'POST',
+    evidence,
+    options,
+  );
+}
+
+export function getCurrentPlan(
+  options: ApiRequestOptions = {},
+): Promise<WorkoutPlan> {
+  return apiRequest<WorkoutPlan>('/v1/plans/current', options);
+}
+
 export function createWorkoutSession(
   input: CreateWorkoutInput,
   options: ApiMutationOptions,
@@ -534,7 +563,9 @@ export function deleteAccount(
 }
 
 export const pocketTrainerApi = {
+  completeAssessment,
   completeWorkoutSession,
+  createAssessment,
   createCustomFood,
   createFoodEntry,
   createWorkoutSession,
@@ -544,6 +575,7 @@ export const pocketTrainerApi = {
   getFoodEntry,
   getBootstrap,
   getCatalog,
+  getCurrentPlan,
   getProfile,
   getProgress,
   getPrivacyExport,

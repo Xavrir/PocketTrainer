@@ -25,7 +25,10 @@ jest.mock('../src/auth/supabase', () => ({
 import {
   ApiClientError,
   apiFetch,
+  completeAssessment,
+  createAssessment,
   getCatalog,
+  getCurrentPlan,
   generateFoodCandidatesFromImage,
   getProgress,
   updateProfile,
@@ -146,6 +149,76 @@ describe('PocketTrainer API client', () => {
 
     expect(mockFetch.mock.calls[0][0]).toBe(
       'https://api.pockettrainer.test/v1/workout-sessions/session%2Fwith%20unsafe%20path/results',
+    );
+  });
+
+  it('creates an assessment with an idempotency key', async () => {
+    mockFetch.mockResolvedValue(
+      response({
+        id: 'assessment-1',
+        status: 'in_progress',
+        assessmentVersion: '2.0.0',
+        startedAt: '2026-07-17T00:00:00.000Z',
+      }),
+    );
+
+    await createAssessment({ idempotencyKey: 'assessment-create-1' });
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe('https://api.pockettrainer.test/v1/assessments');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({});
+    expect((init.headers as Headers).get('Idempotency-Key')).toBe(
+      'assessment-create-1',
+    );
+  });
+
+  it('completes an assessment with observed evidence and no client level', async () => {
+    mockFetch.mockResolvedValue(
+      response({
+        assessment: { id: 'assessment-1', status: 'completed' },
+        xpAwarded: 75,
+        currentPlan: null,
+        progressionSuppressed: false,
+      }),
+    );
+    const evidence = {
+      squatSessionId: 'session-1',
+      targetReps: 3 as const,
+      validReps: 3,
+      durationMs: 12_000,
+      confidenceEligible: true,
+      formScore: 84,
+      painReported: false,
+    };
+
+    await completeAssessment('assessment/unsafe path', evidence, {
+      idempotencyKey: 'assessment-complete-1',
+    });
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe(
+      'https://api.pockettrainer.test/v1/assessments/assessment%2Funsafe%20path/complete',
+    );
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual(evidence);
+    expect(JSON.parse(init.body)).not.toHaveProperty('recommendedLevel');
+  });
+
+  it('returns the current plan from the authenticated API', async () => {
+    const plan = {
+      id: 'plan-1',
+      revision: 1,
+      status: 'active',
+      generatedAt: '2026-07-17T00:00:00.000Z',
+      reason: { id: 'Fondasi', en: 'Foundation' },
+      lessonIds: ['lesson-1'],
+    };
+    mockFetch.mockResolvedValue(response(plan));
+
+    await expect(getCurrentPlan()).resolves.toEqual(plan);
+    expect(mockFetch.mock.calls[0][0]).toBe(
+      'https://api.pockettrainer.test/v1/plans/current',
     );
   });
 
