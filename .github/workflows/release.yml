@@ -1,106 +1,210 @@
-name: Checkpoint release
+name: PocketTrainer v0.2.2 demo release
 
 on:
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Existing checkpoint tag (for example v0.2.0-demo)"
-        required: true
-        type: string
-      prerelease:
-        description: "Publish as a prerelease"
-        required: true
-        default: true
-        type: boolean
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-v0.2.2-demo
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: v0.2.2-demo
+  RELEASE_APK: PocketTrainer-v0.2.2-demo.apk
+  STABLE_API_ORIGIN: https://pockettrainer-api-ae494c.azurewebsites.net
+
 jobs:
   release:
+    name: Verify and publish immutable demo artifact
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out the existing release tag
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ inputs.tag }}
+          ref: v0.2.2-demo
+
+      - name: Verify annotated tag and immutable release slot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; immutable releases cannot be replaced." >&2
+            exit 1
+          fi
+          grep -Eq 'versionCode 4([[:space:]]|$)' apps/mobile/android/app/build.gradle
+          grep -Fq 'versionName "0.2.2"' apps/mobile/android/app/build.gradle
+
       - uses: pnpm/action-setup@v4
         with:
           version: 11.9.0
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
+
       - uses: gradle/actions/setup-gradle@v4
-      - run: pnpm install --frozen-lockfile
-      - name: Verify tag exists
-        run: git rev-parse "${{ inputs.tag }}^{tag}"
-      - name: Prepare public release configuration
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run workspace release gates
+        run: |
+          pnpm typecheck
+          pnpm test
+          pnpm lint
+          pnpm build
+
+      - name: Validate stable public release configuration
         env:
           API_BASE_URL: ${{ vars.POCKETTRAINER_API_BASE_URL }}
           SUPABASE_PUBLISHABLE_KEY: ${{ vars.POCKETTRAINER_SUPABASE_PUBLISHABLE_KEY }}
           SUPABASE_URL: ${{ vars.POCKETTRAINER_SUPABASE_URL }}
         run: |
-          test -n "$API_BASE_URL"
-          test -n "$SUPABASE_PUBLISHABLE_KEY"
-          test -n "$SUPABASE_URL"
-          case "$API_BASE_URL" in
-            https://*) ;;
-            *) echo "Release API URL must use HTTPS." >&2; exit 1 ;;
-          esac
-          node - "$API_BASE_URL" <<'NODE'
-          const raw = process.argv[2];
-          const url = new URL(raw);
-          const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-          const octets = host.split('.').map(Number);
-          const privateIpv4 = octets.length === 4 && octets.every(Number.isInteger) && (
-            octets[0] === 0 || octets[0] === 10 || octets[0] === 127 ||
-            (octets[0] === 169 && octets[1] === 254) ||
-            (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
-            (octets[0] === 192 && octets[1] === 168)
-          );
-          const localHost = host === 'localhost' || host.endsWith('.localhost') ||
-            host.endsWith('.local') || host === '::' || host === '::1' ||
-            /^f[cd][0-9a-f:]+$/i.test(host) || /^fe[89ab][0-9a-f:]+$/i.test(host);
-          const quickTunnel = host === 'trycloudflare.com' || host.endsWith('.trycloudflare.com');
-          if (privateIpv4 || localHost || quickTunnel) {
-            console.error('Release API URL cannot point to a development/private/temporary endpoint.');
-            process.exit(1);
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          const apiBaseUrl = process.env.API_BASE_URL ?? '';
+          const stableApiOrigin = process.env.STABLE_API_ORIGIN ?? '';
+          const supabaseUrl = process.env.SUPABASE_URL ?? '';
+          const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY ?? '';
+
+          if (apiBaseUrl !== stableApiOrigin) {
+            throw new Error('Release API URL must match the approved stable Azure HTTPS origin.');
           }
+
+          const api = new URL(apiBaseUrl);
+          if (
+            api.protocol !== 'https:' ||
+            api.origin !== apiBaseUrl ||
+            api.hostname !== 'pockettrainer-api-ae494c.azurewebsites.net' ||
+            api.username ||
+            api.password
+          ) {
+            throw new Error('Release API URL must be a credential-free HTTPS origin.');
+          }
+
+          const supabase = new URL(supabaseUrl);
+          if (
+            supabase.protocol !== 'https:' ||
+            supabase.origin !== supabaseUrl ||
+            !supabase.hostname.endsWith('.supabase.co') ||
+            supabase.username ||
+            supabase.password
+          ) {
+            throw new Error('Supabase URL must be a credential-free hosted HTTPS origin.');
+          }
+
+          if (!publishableKey || /service[_-]?role|GOCSPX-|BEGIN [A-Z ]*PRIVATE KEY/i.test(publishableKey)) {
+            throw new Error('A Supabase publishable key is required; privileged credentials are forbidden.');
+          }
+
+          fs.writeFileSync(
+            'apps/mobile/.env.release',
+            [
+              `POCKETTRAINER_SUPABASE_URL=${supabaseUrl}`,
+              `POCKETTRAINER_SUPABASE_PUBLISHABLE_KEY=${publishableKey}`,
+              `POCKETTRAINER_API_BASE_URL=${apiBaseUrl}`,
+              'POCKETTRAINER_ALLOW_AUTH_BYPASS=false',
+              '',
+            ].join('\n'),
+            { mode: 0o600 },
+          );
           NODE
-          printf '%s\n' \
-            "POCKETTRAINER_SUPABASE_URL=$SUPABASE_URL" \
-            "POCKETTRAINER_SUPABASE_PUBLISHABLE_KEY=$SUPABASE_PUBLISHABLE_KEY" \
-            "POCKETTRAINER_API_BASE_URL=$API_BASE_URL" \
-            "POCKETTRAINER_ALLOW_AUTH_BYPASS=false" \
-            > apps/mobile/.env.release
-      - name: Build self-contained Android demo
+          curl --fail --silent --show-error --retry 3 --retry-all-errors \
+            --connect-timeout 10 --max-time 30 "$API_BASE_URL/health" >/dev/null
+
+      - name: Run Android JVM and packaging gates
         working-directory: apps/mobile/android
-        run: ENVFILE=.env.release ./gradlew :app:assembleRelease
-      - name: Reject development URLs and bundled secrets
         run: |
-          APK=apps/mobile/android/app/build/outputs/apk/release/app-release.apk
-          STRINGS=/tmp/pockettrainer-apk-strings.txt
-          unzip -p "$APK" assets/index.android.bundle | strings > "$STRINGS"
-          while read -r dex; do
-            unzip -p "$APK" "$dex" | strings >> "$STRINGS"
-          done < <(unzip -Z1 "$APK" | grep -E '^classes[0-9]*\.dex$')
-          if grep -Eq 'http://(localhost|127\.0\.0\.1|10\.0\.2\.2):3000(/|$)|GOCSPX-|client_secret|service_role' "$STRINGS"; then
-            echo "Release bundle contains a development URL or secret marker." >&2
+          set -euo pipefail
+          ENVFILE=.env.release ./gradlew \
+            :app:testDebugUnitTest \
+            :app:assembleDebugAndroidTest \
+            :app:assembleRelease
+
+      - name: Stage deterministic artifact and checksum
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk "dist/$RELEASE_APK"
+          (
+            cd dist
+            sha256sum "$RELEASE_APK" > "$RELEASE_APK.sha256"
+            sha256sum --check "$RELEASE_APK.sha256"
+          )
+
+      - name: Verify demo signature and inspect APK contents
+        run: |
+          set -euo pipefail
+          APK="dist/$RELEASE_APK"
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          APKSIGNER=$(find "$SDK_ROOT/build-tools" -mindepth 2 -maxdepth 2 -type f -name apksigner | sort -V | tail -1)
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --verbose "$APK"
+          CERTIFICATES=$("$APKSIGNER" verify --print-certs "$APK")
+          if ! grep -Fq 'Android Debug' <<<"$CERTIFICATES"; then
+            echo "v0.2.2-demo must retain the explicitly disclosed Android debug certificate." >&2
             exit 1
           fi
-          API_BASE_URL=$(sed -n 's/^POCKETTRAINER_API_BASE_URL=//p' apps/mobile/.env.release)
-          grep -Fq "$API_BASE_URL" "$STRINGS"
-          sha256sum "$APK" > "$APK.sha256"
-      - uses: softprops/action-gh-release@v2
+
+          SCAN_DIR=$(mktemp -d)
+          STRINGS_FILE=$(mktemp)
+          trap 'rm -rf "$SCAN_DIR" "$STRINGS_FILE"' EXIT
+          unzip -qq "$APK" -d "$SCAN_DIR"
+          find "$SCAN_DIR" -type f -print0 | xargs -0 -r strings > "$STRINGS_FILE"
+
+          # Supabase Auth ships an inert localhost:9999 default constant. It is
+          # not PocketTrainer's configured origin; every other dev origin fails.
+          DEV_ORIGINS=$(grep -Eio 'https?://(localhost|127\.0\.0\.1|0\.0\.0\.0|10\.[0-9.]+|192\.168\.[0-9.]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9.]+)(:[0-9]+)?|https?://[^/[:space:]]*(\.localhost|\.local|\.trycloudflare\.com)([:/]|$)' "$STRINGS_FILE" || true)
+          DEV_ORIGINS=$(printf '%s\n' "$DEV_ORIGINS" | grep -Fvx 'http://localhost:9999' || true)
+          if test -n "$DEV_ORIGINS"; then
+            echo "Release APK contains a local, private, or temporary development origin." >&2
+            exit 1
+          fi
+
+          if grep -Eiq 'GOCSPX-[A-Za-z0-9_-]+|AIza[A-Za-z0-9_-]{20,}|SUPABASE_SERVICE_ROLE_KEY|GEMINI_API_KEY|service_role|client_secret|-----BEGIN [A-Z ]*PRIVATE KEY-----' "$STRINGS_FILE"; then
+            echo "Release APK contains a forbidden secret marker." >&2
+            exit 1
+          fi
+
+          grep -Fq "$STABLE_API_ORIGIN" "$STRINGS_FILE"
+          {
+            echo '### v0.2.2-demo artifact verification'
+            echo
+            echo "- Artifact: \`$RELEASE_APK\`"
+            echo "- Checksum: \`$RELEASE_APK.sha256\` verified"
+            echo '- API: approved stable Azure HTTPS origin verified'
+            echo '- Signing: **Android debug certificate — demo/prerelease only, not Play production**'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish immutable GitHub prerelease
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.tag }}
-          prerelease: ${{ inputs.prerelease }}
-          generate_release_notes: true
+          tag_name: v0.2.2-demo
+          name: PocketTrainer v0.2.2 demo
+          prerelease: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          body: |
+            Corrective Android hackathon demo built from the existing annotated `v0.2.2-demo` tag.
+
+            **Signing disclosure:** this APK is signed with the Android debug certificate. It is a demo/prerelease artifact and is not suitable for Google Play production distribution.
+
+            The workflow verifies the stable Azure HTTPS API origin, scans the APK for development origins and secret markers, and validates the attached SHA-256 checksum before publication.
           files: |
-            apps/mobile/android/app/build/outputs/apk/release/app-release.apk
-            apps/mobile/android/app/build/outputs/apk/release/app-release.apk.sha256
+            dist/PocketTrainer-v0.2.2-demo.apk
+            dist/PocketTrainer-v0.2.2-demo.apk.sha256

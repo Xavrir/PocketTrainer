@@ -43,6 +43,19 @@ patch releases get new immutable tags and never move those checkpoints.
 - Connected Kotlin evaluator/offline-store instrumentation and camera flicker fix.
 - Exact-tag release build plus development-URL and secret-marker scanning.
 
+## v0.2.2-demo rescue release
+
+- Must be built from the existing annotated `v0.2.2-demo` tag; the workflow
+  never creates, moves, or replaces a tag.
+- Publishes immutable assets named `PocketTrainer-v0.2.2-demo.apk` and
+  `PocketTrainer-v0.2.2-demo.apk.sha256`; an existing GitHub release blocks the
+  workflow instead of being overwritten.
+- Requires the approved stable Azure HTTPS origin, checks its health endpoint,
+  rejects local/private/Quick Tunnel origins and secret markers, and verifies
+  the generated checksum before publication.
+- Intentionally uses the Android debug certificate. This remains a
+  demo/prerelease artifact and is not suitable for Play production.
+
 ## Still required before public beta
 
 - App-level ambiguous-response/process-death recovery acceptance evidence.
@@ -59,5 +72,7 @@ git push origin v0.2.0-demo
 gh release create v0.2.0-demo --prerelease --generate-notes
 ```
 
-For the corrective release, use the same immutable flow with `v0.2.1-demo`;
-never retag or replace `v0.2.0-demo`.
+For `v0.2.2-demo`, create and push the annotated tag only after every physical
+acceptance gate passes, then manually dispatch the dedicated release workflow.
+The workflow fails if the tag is missing/lightweight or if a release with that
+tag already exists. Never retag or replace any earlier checkpoint.

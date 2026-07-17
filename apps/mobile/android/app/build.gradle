@@ -85,8 +85,8 @@ android {
         applicationId "com.pockettrainer"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
-        versionName "0.2.1"
+        versionCode 4
+        versionName "0.2.2"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
@@ -102,8 +102,9 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
+            // v0.2.2-demo is intentionally debug-signed for hackathon distribution.
+            // It is not a Play production artifact. A production release must replace
+            // this with a protected upload key and must never reuse debug.keystore.
             signingConfig signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
