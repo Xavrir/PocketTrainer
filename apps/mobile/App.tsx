@@ -68,7 +68,7 @@ import {
   type NutritionFacts,
 } from './src/nutrition/components/types';
 
-const APP_VERSION = '0.2.1';
+const APP_VERSION = '0.2.2';
 const CONSENT_VERSION = '1.0.0';
 
 function supportForLesson(lesson: CourseLesson): LessonSupportMode {

@@ -1,6 +1,6 @@
 {
   "name": "pockettrainer",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "On-device movement coaching with a course path that rewards safe mastery.",
   "license": "MIT",
