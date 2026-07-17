@@ -55,11 +55,28 @@ alter table nutrition_foods force row level security;
 drop policy if exists nutrition_foods_read on nutrition_foods;
 create policy nutrition_foods_read on nutrition_foods for select using (user_id is null or user_id = nullif(current_setting('app.current_user_id', true), '')::uuid);
 drop policy if exists nutrition_foods_write on nutrition_foods;
-create policy nutrition_foods_write on nutrition_foods for all using (user_id is null or user_id = nullif(current_setting('app.current_user_id', true), '')::uuid) with check (user_id is null or user_id = nullif(current_setting('app.current_user_id', true), '')::uuid);
+create policy nutrition_foods_write on nutrition_foods for all
+  using (user_id = nullif(current_setting('app.current_user_id', true), '')::uuid)
+  with check (user_id = nullif(current_setting('app.current_user_id', true), '')::uuid);
+drop policy if exists nutrition_foods_owner_global on nutrition_foods;
+create policy nutrition_foods_owner_global on nutrition_foods for all
+  using (
+    user_id is null
+    and current_user = pg_get_userbyid((select relowner from pg_class where oid = 'nutrition_foods'::regclass))
+  )
+  with check (
+    user_id is null
+    and current_user = pg_get_userbyid((select relowner from pg_class where oid = 'nutrition_foods'::regclass))
+  );
 
 alter table food_entries enable row level security;
 alter table food_entries force row level security;
 drop policy if exists food_entries_owner on food_entries;
-create policy food_entries_owner on food_entries for all using (user_id = nullif(current_setting('app.current_user_id', true), '')::uuid) with check (user_id = nullif(current_setting('app.current_user_id', true), '')::uuid);
+create policy food_entries_owner on food_entries for all
+  using (user_id = nullif(current_setting('app.current_user_id', true), '')::uuid)
+  with check (
+    user_id = nullif(current_setting('app.current_user_id', true), '')::uuid
+    and exists (select 1 from nutrition_foods where id = food_id)
+  );
 
 commit;

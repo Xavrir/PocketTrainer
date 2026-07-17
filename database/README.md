@@ -37,6 +37,11 @@ grant execute on function resolve_auth_identity(text), build_catalog_manifest(in
 
 The API wraps every user query in a short transaction and calls `set_config('app.current_user_id', user_id, true)`. Forced RLS then restricts all user-owned tables. The three `SECURITY DEFINER` functions have fixed search paths, public execution revoked, and narrowly scoped responsibilities.
 
+Packaged-food lookups cached by the API are user-scoped. Global nutrition rows
+may be provisioned by the migration owner and are readable but immutable to the
+runtime role. A food entry can reference only a global row or a food row visible
+to the active `app.current_user_id`.
+
 ## Verification
 
 After applying the migration, verify RLS and indexes:

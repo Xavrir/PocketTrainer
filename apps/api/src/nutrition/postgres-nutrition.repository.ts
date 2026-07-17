@@ -86,8 +86,8 @@ export class PostgresNutritionRepository extends NutritionRepository implements 
       const result = await client.query(`insert into nutrition_foods
         (user_id,barcode,name,brand,serving_amount,serving_unit,serving_label,calories_kcal,protein_g,
          carbohydrate_g,fat_g,fiber_g,sugar_g,sodium_mg,source,authoritative)
-        values (null,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-        on conflict (barcode) where user_id is null and barcode is not null do update set
+        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+        on conflict (user_id,barcode) where user_id is not null and barcode is not null do update set
           name=excluded.name,brand=excluded.brand,serving_amount=excluded.serving_amount,
           serving_unit=excluded.serving_unit,serving_label=excluded.serving_label,
           calories_kcal=excluded.calories_kcal,protein_g=excluded.protein_g,
@@ -95,7 +95,7 @@ export class PostgresNutritionRepository extends NutritionRepository implements 
           sugar_g=excluded.sugar_g,sodium_mg=excluded.sodium_mg,source=excluded.source,
           authoritative=excluded.authoritative,updated_at=now()
         returning ${FOOD_COLUMNS}`, [
-        food.barcode, food.name, food.brand, food.serving.amount, food.serving.unit, food.serving.label,
+        userId, food.barcode, food.name, food.brand, food.serving.amount, food.serving.unit, food.serving.label,
         food.nutritionPerServing.caloriesKcal, food.nutritionPerServing.proteinG,
         food.nutritionPerServing.carbohydrateG, food.nutritionPerServing.fatG,
         food.nutritionPerServing.fiberG, food.nutritionPerServing.sugarG,
