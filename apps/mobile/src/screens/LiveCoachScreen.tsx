@@ -190,6 +190,10 @@ export function LiveCoachScreen({
 
   const onPoseEvent = useCallback(
     (event: PoseEngineEvent) => {
+      // Native stop invalidates its analysis generation, but an event already
+      // queued on the React Native bridge may arrive after the pause action.
+      if (pausedRef.current) return;
+
       if (event.type === 'tracking_status') {
         trackingStats.current.total += event.confidence;
         trackingStats.current.samples += 1;
@@ -225,13 +229,6 @@ export function LiveCoachScreen({
           setTrackedDurationMs(current =>
             Math.max(current, nativeValidHoldDurationMs.current),
           );
-        }
-        if (
-          confidenceRef.current === 'good' &&
-          event.formScore !== null &&
-          event.formScore !== undefined
-        ) {
-          eligibleFormScores.current.push(event.formScore);
         }
         setPhase(
           event.phase === 'bottom'
@@ -303,7 +300,11 @@ export function LiveCoachScreen({
       if (painState === 'reported' || safetyStopped) return;
       pausedRef.current = false;
       activeSegmentStartedAtMs.current = now;
-      if (confidenceRef.current === 'good') {
+      if (postureScored) {
+        // Require a fresh eligible native sample after CameraX/MediaPipe restart.
+        confidenceRef.current = 'low';
+        setConfidence('low');
+      } else if (confidenceRef.current === 'good') {
         trackedSegmentStartedAtMs.current = now;
       }
       setPaused(false);
@@ -313,7 +314,7 @@ export function LiveCoachScreen({
     closeActiveSegments(now);
     pausedRef.current = true;
     setPaused(true);
-  }, [closeActiveSegments, painState, safetyStopped]);
+  }, [closeActiveSegments, painState, postureScored, safetyStopped]);
 
   const confirmGuidedRep = useCallback(() => {
     if (

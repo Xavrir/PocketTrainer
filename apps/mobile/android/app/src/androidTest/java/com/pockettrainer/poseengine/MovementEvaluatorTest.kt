@@ -84,6 +84,24 @@ class MovementEvaluatorTest {
         assertNull(evaluation.formScore)
     }
 
+    @Test
+    fun trackingLossDiscardsAPartiallyObservedSquat() {
+        val evaluator = NativeMovementEvaluator("body_squat")
+
+        evaluator.evaluate(landmarks(kneeAngle = 170.0), 0.95, true, 0)
+        evaluator.evaluate(landmarks(kneeAngle = 140.0), 0.95, true, 200)
+        evaluator.evaluate(landmarks(kneeAngle = 100.0), 0.95, true, 400)
+        evaluator.evaluate(landmarks(kneeAngle = 100.0), 0.40, true, 600)
+        evaluator.evaluate(landmarks(kneeAngle = 130.0), 0.95, true, 800)
+        val evaluation = evaluator.evaluate(landmarks(kneeAngle = 170.0), 0.95, true, 1_000)
+
+        assertFalse(evaluation.repCompleted)
+        assertEquals(0, evaluation.repCount)
+        assertEquals(0, evaluation.validRepCount)
+        assertNull(evaluation.formScore)
+        assertNull(evaluation.completedRepScore)
+    }
+
     private fun landmarks(
         elbowAngle: Double = 170.0,
         kneeAngle: Double = 170.0,

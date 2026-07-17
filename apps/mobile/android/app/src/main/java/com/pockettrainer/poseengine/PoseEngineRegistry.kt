@@ -2,19 +2,24 @@ package com.pockettrainer.poseengine
 
 import java.lang.ref.WeakReference
 
-internal object PoseEngineRegistry {
-    private var current = WeakReference<PoseCameraView>(null)
+internal interface PoseEngineTarget {
+    fun start(exerciseKey: String)
+    fun stop()
+}
+
+internal class PoseEngineController {
+    private var current = WeakReference<PoseEngineTarget>(null)
     private var requestedExercise: String? = null
     private var paused = false
 
-    fun attach(view: PoseCameraView) {
+    fun attach(view: PoseEngineTarget) {
         current = WeakReference(view)
         requestedExercise?.let { exerciseKey ->
             if (paused) view.stop() else view.start(exerciseKey)
         }
     }
 
-    fun detach(view: PoseCameraView) {
+    fun detach(view: PoseEngineTarget) {
         if (current.get() === view) current.clear()
     }
 
@@ -43,4 +48,16 @@ internal object PoseEngineRegistry {
         paused = true
         current.get()?.stop()
     }
+}
+
+internal object PoseEngineRegistry {
+    private val controller = PoseEngineController()
+
+    fun attach(view: PoseEngineTarget) = controller.attach(view)
+    fun detach(view: PoseEngineTarget) = controller.detach(view)
+    fun start(exerciseKey: String) = controller.start(exerciseKey)
+    fun selectExercise(exerciseKey: String) = controller.selectExercise(exerciseKey)
+    fun pause() = controller.pause()
+    fun resume() = controller.resume()
+    fun stop() = controller.stop()
 }

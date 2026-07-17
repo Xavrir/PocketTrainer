@@ -89,10 +89,7 @@ internal class NativeMovementEvaluator(exerciseKey: String) {
         }
         val eligible = fullBody && confidence >= 0.65 && points.size >= 33
         if (!eligible) {
-            val targetHoldDurationMs = definition.targetHoldDurationMs
-            if (lastTimestampMs != null && timestampMs - lastTimestampMs!! >= 2_500L && targetHoldDurationMs != null) {
-                reset()
-            }
+            resetTrackingPhase()
             return snapshot(confidenceEligible = false, trackingStatus = "paused", repCompleted = false, completedRepScore = null)
         }
 
@@ -245,13 +242,18 @@ internal class NativeMovementEvaluator(exerciseKey: String) {
     private fun stableFor(timestampMs: Long): Boolean = timestampMs - stateStartedAtMs >= definition.minimumPhaseDurationMs
 
     private fun reset() {
+        repCount = 0
+        validRepCount = 0
+        resetTrackingPhase()
+    }
+
+    /** Discards an interrupted movement without erasing already completed reps. */
+    private fun resetTrackingPhase() {
         state = initialState(definition.exerciseKey)
         stateStartedAtMs = 0L
         lastTimestampMs = null
         lastKneeAngle = null
         lastElbowAngle = null
-        repCount = 0
-        validRepCount = 0
         holdDurationMs = 0L
         squatBottom = false
         squatBottomAngle = 180.0

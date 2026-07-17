@@ -30,7 +30,9 @@ import java.time.Instant
 import kotlin.math.acos
 import kotlin.math.sqrt
 
-internal class PoseCameraView(private val reactContext: ReactContext) : FrameLayout(reactContext) {
+internal class PoseCameraView(private val reactContext: ReactContext) :
+    FrameLayout(reactContext),
+    PoseEngineTarget {
     private val overlay = PoseOverlayView(reactContext).apply {
         layoutParams = LayoutParams(MATCH_PARENT, MATCH_PARENT)
     }
@@ -68,7 +70,8 @@ internal class PoseCameraView(private val reactContext: ReactContext) : FrameLay
         super.onDetachedFromWindow()
     }
 
-    fun start(newExerciseKey: String) {
+    override fun start(exerciseKey: String) {
+        val newExerciseKey = exerciseKey
         synchronized(analysisStateLock) {
             if (newExerciseKey != exerciseKey) {
                 repCount = 0
@@ -76,7 +79,7 @@ internal class PoseCameraView(private val reactContext: ReactContext) : FrameLay
                 bottomKneeAngle = 180.0
                 movementEvaluator.selectExercise(newExerciseKey)
             }
-            exerciseKey = newExerciseKey
+            this.exerciseKey = newExerciseKey
             if (!requestedRunning) {
                 sessionId = UUID.randomUUID().toString()
                 eventSequence = 0L
@@ -147,7 +150,7 @@ internal class PoseCameraView(private val reactContext: ReactContext) : FrameLay
         emit("calibration_status", generation) { putString("status", "body_outside_frame") }
     }
 
-    fun stop() {
+    override fun stop() {
         val stoppedGeneration: Long
         val landmarkerToClose: PoseLandmarker?
         synchronized(analysisStateLock) {
