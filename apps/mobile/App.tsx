@@ -52,6 +52,7 @@ import {
   useWorkoutCompletion,
 } from './src/data';
 import type {
+  AssessmentCompletionV2,
   CompleteWorkoutFlowInput,
   DailyNutrition,
   PersistOnboardingInput,
@@ -71,6 +72,10 @@ import {
   type NutritionFacts,
 } from './src/nutrition/components/types';
 import { sharePrivacyExport } from './src/privacy/sharePrivacyExport';
+import {
+  AssessmentResultScreen,
+  createAssessmentEvidence,
+} from './src/assessment';
 
 const APP_VERSION = '0.3.0-beta';
 const CONSENT_VERSION = '1.0.0';
@@ -248,6 +253,7 @@ export type Flow =
   | 'limitations'
   | 'schedule'
   | 'assessment'
+  | 'assessment-result'
   | 'lesson'
   | 'camera'
   | 'live'
@@ -301,6 +307,11 @@ function AppContent({
     schedule: [],
   });
   const [origin, setOrigin] = useState<'assessment' | 'lesson'>('assessment');
+  const [assessmentId, setAssessmentId] = useState<string | null>(null);
+  const [assessmentCompletion, setAssessmentCompletion] =
+    useState<AssessmentCompletionV2 | null>(null);
+  const [assessmentLoading, setAssessmentLoading] = useState(false);
+  const [assessmentError, setAssessmentError] = useState<string | null>(null);
   const [selectedLesson, setSelectedLesson] = useState<CourseLesson | null>(
     null,
   );
@@ -322,6 +333,8 @@ function AppContent({
     null,
   );
   const onboardingAttemptRef = useRef<PersistOnboardingInput | null>(null);
+  const assessmentCreateKeyRef = useRef<string | null>(null);
+  const assessmentCompleteKeyRef = useRef<string | null>(null);
   const startupRoutingAppliedRef = useRef(Boolean(initialFlow));
   const workoutAttemptRef = useRef<CompleteWorkoutFlowInput | null>(null);
   useEffect(() => {
@@ -349,6 +362,48 @@ function AppContent({
     ) {
       return;
     }
+    if (origin === 'assessment') {
+      const completionIdempotencyKey = assessmentCompleteKeyRef.current;
+      if (!assessmentId || !sessionSummary || !completionIdempotencyKey) return;
+      let evidence;
+      try {
+        evidence = createAssessmentEvidence(
+          synced.result.createdSession.id,
+          sessionSummary,
+          sessionSummary.painState === 'reported',
+        );
+      } catch (error) {
+        setResultError(
+          error instanceof Error
+            ? error.message
+            : 'Bukti asesmen tidak valid.',
+        );
+        setSyncStatus('sync_failed');
+        return;
+      }
+      setSyncStatus('waiting_to_sync');
+      nutritionApi
+        .completeAssessment(
+          assessmentId,
+          evidence,
+          { idempotencyKey: completionIdempotencyKey },
+        )
+        .then(completion => {
+          setAssessmentCompletion(completion);
+          setSyncStatus('server_confirmed');
+          setFlow('assessment-result');
+          bootstrap.reload();
+        })
+        .catch(error => {
+          setResultError(
+            error instanceof Error
+              ? error.message
+              : 'Asesmen belum dikonfirmasi server.',
+          );
+          setSyncStatus('sync_failed');
+        });
+      return;
+    }
     const priorMastery = bootstrap.data?.progress.mastery.find(
       item => item.exerciseKey === selectedLesson.exerciseKey,
     );
@@ -370,9 +425,13 @@ function AppContent({
     bootstrap.reload();
   }, [
     bootstrap,
+    assessmentId,
     localSessionId,
+    nutritionApi,
     offlineRuntime.lastSyncedWorkout,
+    origin,
     selectedLesson,
+    sessionSummary,
     syncStatus,
   ]);
 
@@ -444,6 +503,16 @@ function AppContent({
     }),
     [auth.session, bootstrap.data?.progress, courseCatalog],
   );
+  const recommendedLesson = useMemo(() => {
+    const lessonIds = bootstrap.data?.currentPlan?.lessonIds;
+    if (!courseCatalog || !lessonIds?.length) return null;
+    const lessons = courseCatalog.tracks
+      .flatMap(track => track.units)
+      .flatMap(unit => unit.lessons);
+    return lessonIds
+      .map(id => lessons.find(lesson => lesson.id === id))
+      .find((lesson): lesson is CourseLesson => Boolean(lesson)) ?? null;
+  }, [bootstrap.data?.currentPlan?.lessonIds, courseCatalog]);
   const openLesson = (lesson?: CourseLesson) => {
     const nextLesson = lesson ?? selectedLesson ?? firstAvailableLesson();
     if (!nextLesson) {
@@ -463,11 +532,53 @@ function AppContent({
         .flatMap(track => track.units)
         .flatMap(unit => unit.lessons)
         .find(lesson => lesson.exerciseKey === 'body_squat') ?? null;
-    if (assessmentLesson) setSelectedLesson(assessmentLesson);
+    if (!assessmentLesson) {
+      Alert.alert(
+        'Asesmen belum tersedia',
+        'Catalog server belum menyediakan lesson squat untuk asesmen.',
+      );
+      return;
+    }
+    setSelectedLesson(assessmentLesson);
+    setAssessmentId(null);
+    setAssessmentCompletion(null);
+    setAssessmentError(null);
+    assessmentCreateKeyRef.current = null;
+    assessmentCompleteKeyRef.current = null;
     setOrigin('assessment');
     setFlow('assessment');
   };
+  const prepareAssessment = async () => {
+    setAssessmentLoading(true);
+    setAssessmentError(null);
+    try {
+      const idempotencyKey =
+        assessmentCreateKeyRef.current ?? (await offlineRuntime.createId());
+      assessmentCreateKeyRef.current = idempotencyKey;
+      const assessment = await nutritionApi.createAssessment({
+        idempotencyKey,
+      });
+      assessmentCompleteKeyRef.current ??= await offlineRuntime.createId();
+      setAssessmentId(assessment.id);
+      setFlow('camera');
+    } catch (error) {
+      setAssessmentError(
+        error instanceof Error
+          ? error.message
+          : 'Asesmen belum dapat dibuat di server.',
+      );
+    } finally {
+      setAssessmentLoading(false);
+    }
+  };
   const beginLiveCoaching = async () => {
+    if (origin === 'assessment' && !assessmentId) {
+      Alert.alert(
+        'Asesmen belum dibuat',
+        'Kembali dan buat asesmen server sebelum menyalakan kamera.',
+      );
+      return;
+    }
     if (!selectedLesson) {
       Alert.alert(
         'Lesson belum dipilih',
@@ -610,6 +721,31 @@ function AppContent({
         return;
       }
       const result = durable.result;
+      if (origin === 'assessment') {
+        if (!assessmentId) {
+          throw new Error('ID asesmen server tidak tersedia.');
+        }
+        const completionIdempotencyKey =
+          assessmentCompleteKeyRef.current ??
+          (await offlineRuntime.createId());
+        assessmentCompleteKeyRef.current = completionIdempotencyKey;
+        const completion = await nutritionApi.completeAssessment(
+          assessmentId,
+          createAssessmentEvidence(
+            result.createdSession.id,
+            summary,
+            painReported,
+          ),
+          { idempotencyKey: completionIdempotencyKey },
+        );
+        setSessionSummary(summary);
+        setAssessmentCompletion(completion);
+        setAuthoritativeResult(undefined);
+        setSyncStatus('server_confirmed');
+        setFlow('assessment-result');
+        bootstrap.reload();
+        return;
+      }
       const mastery = result.completion.masteryChanges.find(
         item => item.exerciseKey === selectedLesson.exerciseKey,
       );
@@ -832,10 +968,15 @@ function AppContent({
       />
     ) : activeTab === 'coach' ? (
       <CoachScreen
+        currentPlan={bootstrap.data?.currentPlan}
+        error={bootstrap.error?.message}
+        loading={bootstrap.loading}
         onAssessment={openAssessment}
-        onWorkout={() => openLesson()}
+        onRetry={bootstrap.reload}
+        onWorkout={openLesson}
         onFoodScan={openNutritionScan}
         onNutritionDiary={() => setFlow('nutrition-diary')}
+        recommendedLesson={recommendedLesson}
       />
     ) : activeTab === 'progress' ? (
       <ProgressScreen
@@ -962,8 +1103,11 @@ function AppContent({
   else if (flow === 'assessment')
     screen = (
       <AssessmentIntroScreen
+        error={assessmentError}
+        loading={assessmentLoading}
         onBack={() => setFlow(activeTab === 'coach' ? 'main' : 'schedule')}
-        onContinue={() => setFlow('camera')}
+        onContinue={() => prepareAssessment().catch(() => undefined)}
+        onRetry={() => prepareAssessment().catch(() => undefined)}
       />
     );
   else if (flow === 'lesson')
@@ -989,6 +1133,7 @@ function AppContent({
   else if (flow === 'camera')
     screen = (
       <CameraSetupScreen
+        mode={origin}
         onBack={() => setFlow(origin === 'lesson' ? 'lesson' : 'assessment')}
         onReady={beginLiveCoaching}
       />
@@ -1011,10 +1156,14 @@ function AppContent({
         onStop={() => setFlow(origin === 'lesson' ? 'lesson' : 'assessment')}
         sessionId={localSessionId}
         targetType={
-          selectedLesson.target.type === 'reps' ? 'repetitions' : 'duration_ms'
+          origin === 'assessment' || selectedLesson.target.type === 'reps'
+            ? 'repetitions'
+            : 'duration_ms'
         }
         targetValue={
-          selectedLesson.target.type === 'reps'
+          origin === 'assessment'
+            ? 3
+            : selectedLesson.target.type === 'reps'
             ? selectedLesson.target.value
             : selectedLesson.target.value * 1000
         }
@@ -1077,6 +1226,16 @@ function AppContent({
           Selesaikan target lesson sebelum membuka ringkasan.
         </Text>
       </View>
+    );
+  else if (flow === 'assessment-result' && assessmentCompletion)
+    screen = (
+      <AssessmentResultScreen
+        completion={assessmentCompletion}
+        onDone={() => {
+          setActiveTab('coach');
+          setFlow('main');
+        }}
+      />
     );
   else if (flow === 'safe-variation')
     screen = (
