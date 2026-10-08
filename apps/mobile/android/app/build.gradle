@@ -150,7 +150,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
 
     // Full-database encryption for the durable offline workout/sync queue.
-    implementation(group: "net.zetetic", name: "sqlcipher-android", version: "4.17.0")
+    implementation(group: "net.zetetic", name: "sqlcipher-android", version: "4.19.1")
     implementation(group: "androidx.sqlite", name: "sqlite", version: "2.6.2")
 
     testImplementation("junit:junit:4.13.2")
